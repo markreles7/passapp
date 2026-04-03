@@ -1,0 +1,22 @@
+{
+  "segnalazioni": [
+    {
+      "numero_progressivo": 7,
+      "anno": "2026",
+      "mese": "03",
+      "giorno": "30",
+      "ora": "17:20",
+      "nominativo": "Marco Muzzica",
+      "residenza": "Viadana (MN)",
+      "indirizzo": "Via Manfrassina, 49G",
+      "telefono": "3273834020",
+      "modalita_segnalazione": "Personalmente",
+      "descrizione_segnalazione": "Segnala che ci sono polli che volano",
+      "ricevente": "Claudia",
+      "agente_verificatore": "",
+      "verifica_effettuata": "",
+      "data_verifica": "",
+      "stato": "in_corso"
+    }
+  ]
+}

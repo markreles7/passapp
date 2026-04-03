@@ -1,0 +1,77 @@
+{
+  "paths": {
+    "log_file": "data/passapp.log",
+    "segnalazioni_file": "data/segnalazioni.json",
+    "documents_dir": "documenti",
+    "segnalazioni_pdf_dir": "documenti/segnalazioni_pdf",
+    "logo_path": "assets/logo.jpg",
+    "pass_invalidi_network_folder": "R:\\Polizia_locale\\INVALIDI",
+    "pass_invalidi_pattern": "REGISTRO INVALIDI COMUNE*.xlsx",
+    "pass_invalidi_docs_folder": "R:\\Polizia_locale\\INVALIDI\\Tesserini rilasciati",
+    "pass_invalidi_authorization_template": "R:\\Polizia_locale\\INVALIDI\\Tesserini rilasciati\\MOTTA Gina Autoriz.  disabili n. 26  2026.doc",
+    "pass_invalidi_authorization_city": "PEGOGNAGA",
+    "ospitalita_network_folder": "R:\\Comune\\COMUNICAZIONE OSPITALITA' STRANIERI",
+    "ospitalita_patterns": [
+      "registro comunicazioni *.xls",
+      "registro comunicazioni *.xlsx",
+      "*.xls",
+      "*.xlsx"
+    ]
+  },
+  "pass_invalidi": {
+    "warning_days": 60
+  },
+  "ui": {
+    "app_name": "PassApp Suite Ufficio Servizi",
+    "main_title": "Suite Ufficio Servizi - Polizia Locale",
+    "dashboard_title": "Dashboard Servizi Comunali",
+    "dashboard_subtitle": "Polizia Locale",
+    "dashboard_description": "Seleziona il modulo operativo da aprire.",
+    "window": {
+      "width": 1180,
+      "height": 760,
+      "min_width": 980,
+      "min_height": 640
+    },
+    "theme": {
+      "bg": "#F5F3EF",
+      "bg2": "#EDE9E3",
+      "surface": "#FFFFFF",
+      "border": "#DDD8D0",
+      "accent": "#2D6BE4",
+      "accent_dark": "#1A4FAF",
+      "success": "#1E9E6B",
+      "warning": "#C97A10",
+      "danger": "#C0392B",
+      "text": "#1A1A1A",
+      "text_muted": "#6B6560",
+      "text_dim": "#A09B94"
+    },
+    "modules": {
+      "pass_invalidi": {
+        "title": "Pass Invalidi - Polizia Locale",
+        "menu_title": "Pass Invalidi",
+        "menu_description": "Registro pass, filtri scadenze e dettaglio storico.",
+        "icon": "PI",
+        "accent": "#2D6BE4",
+        "accent_dark": "#1A4FAF"
+      },
+      "segnalazioni": {
+        "title": "Segnalazioni Cittadini - Polizia Locale",
+        "menu_title": "Segnalazioni Cittadini",
+        "menu_description": "Gestione segnalazioni, assegnazioni e stato lavorazione.",
+        "icon": "SC",
+        "accent": "#C97A10",
+        "accent_dark": "#9C5D08"
+      },
+      "ospitalita": {
+        "title": "Comunicazioni Ospitalita Stranieri - Polizia Locale",
+        "menu_title": "Ospitalita Stranieri",
+        "menu_description": "Gestione pratiche ospitalita e verifica documentale.",
+        "icon": "OS",
+        "accent": "#2A7E54",
+        "accent_dark": "#1C5A3C"
+      }
+    }
+  }
+}
