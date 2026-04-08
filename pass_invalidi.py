@@ -1,4 +1,4 @@
-"""
+﻿"""
 PassApp - Modulo Pass Invalidi.
 Legge i registri configurati in data/config.json.
 """
@@ -50,7 +50,7 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 logger.propagate = False
 
-# ─── CONFIGURAZIONE ───────────────────────────────────────────────────────────
+# --- CONFIGURAZIONE ---
 CARTELLA_RETE = PATHS["pass_invalidi_network_folder"]
 PATTERN_FILE = PATHS["pass_invalidi_pattern"]
 GIORNI_SCADENZA = int(APP_CONFIG["pass_invalidi"]["warning_days"])
@@ -59,7 +59,7 @@ WORK_COPY_DIR = resolve_path("data/workcopies/pass_invalidi")
 AUTH_DOCS_DIR = PATHS.get("pass_invalidi_docs_folder") or os.path.join(CARTELLA_RETE, "Tesserini rilasciati")
 AUTH_TEMPLATE_PATH = PATHS.get("pass_invalidi_authorization_template") or os.path.join(
     AUTH_DOCS_DIR,
-    "MOTTA Gina Autoriz.  disabili n. 26  2026.doc",
+    "Tesserino Disabili Guida.doc",
 )
 AUTH_CITY_DEFAULT = PATHS.get("pass_invalidi_authorization_city", "PEGOGNAGA")
 
@@ -77,7 +77,7 @@ TEXT = THEME["text"]
 TEXT_MUTED = THEME["text_muted"]
 TEXT_DIM = THEME["text_dim"]
 
-# ─── PARSING ─────────────────────────────────────────────────────────────────
+# --- PARSING ---
 
 def parse_date(val):
     """Converte vari formati di data in datetime.date o None."""
@@ -98,7 +98,7 @@ def parse_date(val):
 
 def format_date(val):
     d = parse_date(val)
-    return d.strftime("%d/%m/%Y") if d else (str(val) if val else "—")
+    return d.strftime("%d/%m/%Y") if d else (str(val) if val else "-")
 
 def get_status(val):
     """Ritorna 'expired', 'soon', 'valid' o None."""
@@ -144,7 +144,7 @@ def carica_file(path):
             continue
 
         generalita = str(row[1]).strip() if len(row) > 1 and row[1] else ""
-        if not generalita or generalita.lower() in ("generalità", "generalita'", "nan", "none"):
+        if not generalita or generalita.lower() in ("generalita", "generalita'", "nan", "none"):
             continue
 
         nome, indirizzo = generalita, ""
@@ -182,9 +182,16 @@ def carica_file(path):
             if c and str(c).strip() not in ("None", "nan", "")
         )
 
+        name_tokens = [t for t in re.split(r"\s+", nome.strip()) if t]
+        cognome = name_tokens[0].upper() if name_tokens else nome.upper()
+        nome_proprio = " ".join(name_tokens[1:]).strip() if len(name_tokens) > 1 else ""
+
         records.append({
             "numero":    num,
             "nome":      nome.upper(),
+            "cognome":   cognome,
+            "nome_proprio": nome_proprio,
+            "nato_il":   "",
             "indirizzo": indirizzo,
             "rilascio":  rilascio,
             "scadenza":  scadenza,
@@ -225,7 +232,7 @@ def carica_tutti():
     return all_records, files, errori
 
 
-# ─── INTERFACCIA GRAFICA ──────────────────────────────────────────────────────
+# --- INTERFACCIA GRAFICA ---
 
 class PassInvalidiFrame(tk.Frame):
     def __init__(self, parent, controller=None, show_back_button=True):
@@ -256,10 +263,10 @@ class PassInvalidiFrame(tk.Frame):
         if self.controller is not None:
             self.controller.title(PASS_INVALIDI_UI["title"])
 
-    # ── UI ────────────────────────────────────────────────────────────────────
+    # --- UI ---
 
     def _build_ui(self):
-        # ── HEADER ────────────────────────────────────────────────────────────
+        # HEADER
         hdr = tk.Frame(self, bg=SURFACE, relief="flat")
         hdr.pack(fill="x", side="top")
 
@@ -272,7 +279,7 @@ class PassInvalidiFrame(tk.Frame):
         title_frame.pack(side="left")
 
         # Badge icona
-        badge = tk.Label(title_frame, text="♿", bg=ACCENT, fg="white",
+        badge = tk.Label(title_frame, text="PI", bg=ACCENT, fg="white",
                          font=("Segoe UI", 16), width=2, padx=6, pady=4)
         badge.pack(side="left", padx=(0, 12))
 
@@ -281,7 +288,7 @@ class PassInvalidiFrame(tk.Frame):
                              font=("Segoe UI", 14, "bold"))
         lbl_title.pack(side="left")
 
-        lbl_sub = tk.Label(title_frame, text=" · Polizia Locale",
+        lbl_sub = tk.Label(title_frame, text=" - Polizia Locale",
                            bg=SURFACE, fg=TEXT_MUTED,
                            font=("Segoe UI", 10))
         lbl_sub.pack(side="left", pady=(3, 0))
@@ -290,7 +297,7 @@ class PassInvalidiFrame(tk.Frame):
         actions_frame = tk.Frame(inner_hdr, bg=SURFACE)
         actions_frame.pack(side="right")
         if self.show_back_button:
-            tk.Button(actions_frame, text="← Torna al Menu Principale",
+            tk.Button(actions_frame, text="<- Torna al Menu Principale",
                       bg=BG2, fg=TEXT_MUTED,
                       font=("Segoe UI", 10, "bold"),
                       relief="flat", cursor="hand2",
@@ -304,12 +311,12 @@ class PassInvalidiFrame(tk.Frame):
         self.stats_frame = tk.Frame(inner_hdr, bg=SURFACE)
         self.stats_frame.pack(side="right")
 
-        self.lbl_totale   = self._stat_pill(self.stats_frame, "👤 Totale: —")
-        self.lbl_scaduti  = self._stat_pill(self.stats_frame, "⚠ Scaduti: —", DANGER)
-        self.lbl_scadenza = self._stat_pill(self.stats_frame, "⏳ In scad.: —", WARNING)
-        self.lbl_file     = self._stat_pill(self.stats_frame, "📂 File: —")
+        self.lbl_totale   = self._stat_pill(self.stats_frame, "Totale: -")
+        self.lbl_scaduti  = self._stat_pill(self.stats_frame, "Scaduti: -", DANGER)
+        self.lbl_scadenza = self._stat_pill(self.stats_frame, "In scad.: -", WARNING)
+        self.lbl_file     = self._stat_pill(self.stats_frame, "File: -")
 
-        # ── BARRA RICERCA + FILTRI ─────────────────────────────────────────────
+        # BARRA RICERCA + FILTRI
         search_panel = tk.Frame(self, bg=BG)
         search_panel.pack(fill="x", padx=24, pady=(18, 0))
 
@@ -323,7 +330,7 @@ class PassInvalidiFrame(tk.Frame):
                                     relief="flat")
         search_container.pack(side="left", fill="x", expand=True)
 
-        tk.Label(search_container, text="🔍", bg=SURFACE,
+        tk.Label(search_container, text="Cerca", bg=SURFACE,
                  font=("Segoe UI", 13), padx=10).pack(side="left")
 
         self.search_var = tk.StringVar()
@@ -337,13 +344,13 @@ class PassInvalidiFrame(tk.Frame):
         self.entry.pack(side="left", fill="x", expand=True, ipady=10)
         self.entry.bind("<Escape>", lambda e: self.search_var.set(""))
 
-        tk.Button(search_container, text="✕", bg=SURFACE, fg=TEXT_MUTED,
+        tk.Button(search_container, text="x", bg=SURFACE, fg=TEXT_MUTED,
                   font=("Segoe UI", 10), relief="flat", cursor="hand2",
                   activebackground=BG2,
                   command=lambda: self.search_var.set("")).pack(side="right", padx=8)
 
         # Pulsante ricarica
-        self.btn_reload = tk.Button(search_row, text="↻  Aggiorna",
+        self.btn_reload = tk.Button(search_row, text="Aggiorna",
                                     bg=ACCENT, fg="white",
                                     font=("Segoe UI", 10, "bold"),
                                     relief="flat", cursor="hand2",
@@ -421,7 +428,7 @@ class PassInvalidiFrame(tk.Frame):
         self.year_combo.bind("<<ComboboxSelected>>", self._on_year_change)
 
         # Pulsante apri cartella
-        tk.Button(search_row, text="📂  Apri cartella",
+        tk.Button(search_row, text="Apri cartella",
                   bg=BG2, fg=TEXT_MUTED,
                   font=("Segoe UI", 10),
                   relief="flat", cursor="hand2",
@@ -441,9 +448,9 @@ class PassInvalidiFrame(tk.Frame):
         self.filter_btns = {}
         filtri = [
             ("tutti",   "Tutti",                None),
-            ("valid",   "✓ Validi",             SUCCESS),
-            ("soon",    "⏳ In scadenza (60gg)", WARNING),
-            ("expired", "⚠ Scaduti",            DANGER),
+            ("valid",   "Validi",             SUCCESS),
+            ("soon",    "In scadenza (60gg)", WARNING),
+            ("expired", "Scaduti",            DANGER),
         ]
         for key, label, color in filtri:
             btn = tk.Button(filter_row, text=label,
@@ -456,13 +463,13 @@ class PassInvalidiFrame(tk.Frame):
 
         self._aggiorna_filter_btns()
 
-        # ── STATUS BAR ────────────────────────────────────────────────────────
-        self.lbl_status = tk.Label(search_panel, text="Caricamento in corso…",
+        # STATUS BAR
+        self.lbl_status = tk.Label(search_panel, text="Caricamento in corso...",
                                    bg=BG, fg=TEXT_DIM, font=("Segoe UI", 8),
                                    anchor="w")
         self.lbl_status.pack(fill="x", pady=(8, 0))
 
-        # ── TABELLA ───────────────────────────────────────────────────────────
+        # TABELLA
         table_frame = tk.Frame(self, bg=BG)
         table_frame.pack(fill="both", expand=True, padx=24, pady=(12, 24))
 
@@ -528,7 +535,7 @@ class PassInvalidiFrame(tk.Frame):
         tk.Label(self, text="Doppio clic su una riga per vedere tutti i dettagli",
                  bg=BG, fg=TEXT_DIM, font=("Segoe UI", 8)).pack(pady=(0, 6))
 
-        # ── BANNER LOGO IN FONDO AL CENTRO ───────────────────────────────────
+        # BANNER LOGO IN FONDO AL CENTRO
         self.banner_frame = tk.Frame(self, bg=BG)
         self.banner_frame.pack(fill="x", side="bottom")
         self._build_logo_banner()
@@ -602,10 +609,10 @@ class PassInvalidiFrame(tk.Frame):
         records = list(self.all_records)
         n_scad = sum(1 for r in records if get_status(r.get("scadenza")) == "expired")
         n_soon = sum(1 for r in records if get_status(r.get("scadenza")) == "soon")
-        self.lbl_totale.config(text=f"👤 Totale: {len(records)}")
-        self.lbl_file.config(text=f"📂 File: {len(self._source_files)}")
-        self.lbl_scaduti.config(text=f"⚠ Scaduti: {n_scad}")
-        self.lbl_scadenza.config(text=f"⏳ In scad.: {n_soon}")
+        self.lbl_totale.config(text=f"Totale: {len(records)}")
+        self.lbl_file.config(text=f"File: {len(self._source_files)}")
+        self.lbl_scaduti.config(text=f"Scaduti: {n_scad}")
+        self.lbl_scadenza.config(text=f"In scad.: {n_soon}")
 
     def _apply_year_context(self):
         selected_year = self.year_var.get().strip()
@@ -645,7 +652,7 @@ class PassInvalidiFrame(tk.Frame):
         self._apply_year_context()
         self.applica_filtro()
 
-    # ── DATI ──────────────────────────────────────────────────────────────────
+    # --- DATI ---
 
     def carica_dati(self, force: bool = False):
         if not force and self._pending_new_records:
@@ -663,8 +670,8 @@ class PassInvalidiFrame(tk.Frame):
             self.lbl_status.config(text="Errore: dipendenza openpyxl non disponibile.")
             return
 
-        self.btn_reload.config(state="disabled", text="Caricamento…")
-        self.lbl_status.config(text=f"Lettura da {CARTELLA_RETE} …")
+        self.btn_reload.config(state="disabled", text="Caricamento...")
+        self.lbl_status.config(text=f"Lettura da {CARTELLA_RETE} ...")
         self.tree.delete(*self.tree.get_children())
         self._load_seq += 1
         current_seq = self._load_seq
@@ -699,63 +706,8 @@ class PassInvalidiFrame(tk.Frame):
         threading.Thread(target=worker, daemon=True).start()
         self.after(60, poll)
 
-    def _post_carica(self, records, files, errori):
-        self.btn_reload.config(state="normal", text="↻  Aggiorna")
-
-        if not files and not records:
-            logger.warning("Nessun file pass invalidi disponibile in %s", CARTELLA_RETE)
-            self.all_records = []
-            self.filtered = []
-            self._source_files = []
-            self._primary_source_file = None
-            self._working_copy_file = None
-            self._pending_new_records = []
-            self._popola_tabella([])
-            self.lbl_totale.config(text="👤 Totale: 0")
-            self.lbl_file.config(text="📂 File: 0")
-            self.lbl_scaduti.config(text="⚠ Scaduti: 0")
-            self.lbl_scadenza.config(text="⏳ In scad.: 0")
-            self.btn_new.config(state="disabled")
-            self.btn_save_changes.config(state="disabled")
-            msg = (f"Nessun file trovato in:\n{CARTELLA_RETE}\n\n"
-                   f"Verifica che il disco R: sia collegato e che esistano\n"
-                   f"file con nome: {PATTERN_FILE}")
-            messagebox.showwarning("Cartella non trovata", msg)
-            self.lbl_status.config(text="⚠ Nessun file trovato — controlla disco R:")
-            return
-
-        if errori:
-            logger.error("Errori lettura pass invalidi: %s", " | ".join(errori))
-            messagebox.showerror("Errori di lettura",
-                                 "Alcuni file non sono stati letti correttamente:\n\n" +
-                                 "\n".join(errori))
-
-        self.all_records = records
-        self._source_files = list(files)
-        self._primary_source_file = files[0] if files else None
-        self._pending_new_records = []
-        self._prepare_working_copy()
-        n_files = len(files)
-        n_scad  = sum(1 for r in records if get_status(r["scadenza"]) == "expired")
-        n_soon  = sum(1 for r in records if get_status(r["scadenza"]) == "soon")
-
-        self.lbl_totale.config(  text=f"👤 Totale: {len(records)}")
-        self.lbl_file.config(    text=f"📂 File: {n_files}")
-        self.lbl_scaduti.config( text=f"⚠ Scaduti: {n_scad}")
-        self.lbl_scadenza.config(text=f"⏳ In scad.: {n_soon}")
-
-        nomi_file = ", ".join(os.path.basename(f) for f in files)
-        self.lbl_status.config(
-            text=f"Caricati {n_files} file · {len(records)} pass totali · "
-                 f"Aggiornato: {datetime.datetime.now().strftime('%H:%M:%S')}   |   {nomi_file}"
-        )
-        self.btn_new.config(state="normal" if self._working_copy_file else "disabled")
-        self.btn_save_changes.config(state="disabled")
-
-        self.applica_filtro()
-
     def _post_carica_v2(self, records, files, errori):
-        self.btn_reload.config(state="normal", text="↻  Aggiorna")
+        self.btn_reload.config(state="normal", text="Aggiorna")
         self._all_records_loaded = list(records)
         self._files_loaded = list(files)
 
@@ -806,8 +758,8 @@ class PassInvalidiFrame(tk.Frame):
         year_label = f"Anno {selected_year}" if selected_year and selected_year != "Tutti" else "Tutti gli anni"
         self.lbl_status.config(
             text=(
-                f"{year_label} · Caricati {len(self._source_files)} file · "
-                f"{len(self.all_records)} pass totali · Aggiornato: "
+                f"{year_label} - Caricati {len(self._source_files)} file - "
+                f"{len(self.all_records)} pass totali - Aggiornato: "
                 f"{datetime.datetime.now().strftime('%H:%M:%S')} | {nomi_file}"
             )
         )
@@ -839,7 +791,7 @@ class PassInvalidiFrame(tk.Frame):
         self.lbl_status.config(
             text=(f"{'Tutti i' if not parts else 'Trovati'} {n} risultati"
                   + (f' per "{query}"' if parts else "")
-                  + (f" · filtro: {mode}" if mode != "tutti" else ""))
+                  + (f" - filtro: {mode}" if mode != "tutti" else ""))
         )
 
     def _popola_tabella(self, records):
@@ -853,31 +805,31 @@ class PassInvalidiFrame(tk.Frame):
             # Etichetta stato
             if st == "expired":
                 giorni = giorni_rimanenti(r["scadenza"])
-                stato_lbl = f"⚠ Scaduto ({abs(giorni)}gg fa)" if giorni is not None else "⚠ Scaduto"
+                stato_lbl = f"Scaduto ({abs(giorni)}gg fa)" if giorni is not None else "Scaduto"
             elif st == "soon":
                 giorni = giorni_rimanenti(r["scadenza"])
-                stato_lbl = f"⏳ Scade in {giorni}gg" if giorni is not None else "⏳ In scadenza"
+                stato_lbl = f"Scade in {giorni}gg" if giorni is not None else "In scadenza"
             elif st == "valid":
-                stato_lbl = "✓ Valido"
+                stato_lbl = "Valido"
             else:
-                stato_lbl = "—"
+                stato_lbl = "-"
 
-            # Alterna sfondo righe per leggibilità (solo per valid/unknown)
+            # Alterna sfondo righe per leggibilita (solo per valid/unknown)
             if tag in ("valid", "unknown") and i % 2 == 1:
                 tag = "odd"
 
             self.tree.insert("", "end", iid=str(i), tags=(tag,), values=(
                 r["numero"],
                 r["nome"],
-                r["indirizzo"] or "—",
+                r["indirizzo"] or "-",
                 format_date(r["rilascio"]),
                 format_date(r["scadenza"]),
                 stato_lbl,
-                r["note"] or "—",
+                r["note"] or "-",
                 r["source"],
             ))
 
-    # ── ORDINAMENTO ───────────────────────────────────────────────────────────
+    # --- ORDINAMENTO ---
 
     def ordina(self, col):
         if self.sort_col == col:
@@ -907,224 +859,10 @@ class PassInvalidiFrame(tk.Frame):
             base = {"numero":"N°","nome":"Cognome e Nome","indirizzo":"Indirizzo",
                     "rilascio":"Rilascio","scadenza":"Scadenza","stato":"Stato",
                     "note":"Note / Certificato","source":"File"}[c]
-            arrow = (" ▲" if self.sort_asc else " ▼") if c == col else ""
+            arrow = (" ^" if self.sort_asc else " v") if c == col else ""
             self.tree.heading(c, text=base + arrow)
 
-    # ── DETTAGLIO + STORICO ───────────────────────────────────────────────────
-
-    def mostra_dettaglio(self, event):
-        sel = self.tree.selection()
-        if not sel:
-            return
-        idx = int(sel[0])
-        if idx >= len(self.filtered):
-            return
-        r = self.filtered[idx]
-        st = get_status(r["scadenza"])
-
-        # Cerca tutti i pass della stessa persona in tutti gli anni
-        nome_corrente = r["nome"].strip().upper()
-        storico = sorted(
-            [x for x in self.all_records
-             if x["nome"].strip().upper() == nome_corrente],
-            key=lambda x: parse_date(x["rilascio"]) or datetime.date.min,
-            reverse=True
-        )
-
-        win = tk.Toplevel(self)
-        win.title(f"Dettaglio — {r['nome']}")
-        win.geometry("580x640")
-        win.configure(bg=BG)
-        win.resizable(True, True)
-        win.minsize(520, 500)
-        win.grab_set()
-
-        # Barra colorata in cima
-        bar_color = DANGER if st=="expired" else WARNING if st=="soon" else SUCCESS if st=="valid" else BORDER
-        tk.Frame(win, bg=bar_color, height=5).pack(fill="x")
-
-        # ── Intestazione nome ──────────────────────────────────────────────
-        hdr = tk.Frame(win, bg=SURFACE, pady=0)
-        hdr.pack(fill="x")
-        tk.Frame(hdr, bg=BORDER, height=1).pack(fill="x", side="bottom")
-
-        hdr_inner = tk.Frame(hdr, bg=SURFACE)
-        hdr_inner.pack(fill="x", padx=24, pady=14)
-
-        tk.Label(hdr_inner, text=f"N° Concessione {r['numero']}",
-                 bg=SURFACE, fg=TEXT_DIM, font=("Segoe UI", 8)).pack(anchor="w")
-        tk.Label(hdr_inner, text=r["nome"],
-                 bg=SURFACE, fg=TEXT, font=("Segoe UI", 16, "bold")).pack(anchor="w", pady=(2, 0))
-
-        # Badge storico
-        n_anni = len(set(x["source"] for x in storico))
-        badge_txt = f"📋 {len(storico)} pass registrati in {n_anni} {'anno' if n_anni==1 else 'anni'}"
-        tk.Label(hdr_inner, text=badge_txt,
-                 bg=SURFACE, fg=ACCENT, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(3, 0))
-
-        # ── Notebook con schede ────────────────────────────────────────────
-        nb_style = ttk.Style()
-        nb_style.configure("Det.TNotebook", background=BG, borderwidth=0)
-        nb_style.configure("Det.TNotebook.Tab",
-                           font=("Segoe UI", 9, "bold"),
-                           padding=(14, 7))
-        nb_style.map("Det.TNotebook.Tab",
-                     background=[("selected", SURFACE), ("!selected", BG2)],
-                     foreground=[("selected", ACCENT), ("!selected", TEXT_MUTED)])
-
-        nb = ttk.Notebook(win, style="Det.TNotebook")
-        nb.pack(fill="both", expand=True, padx=0, pady=0)
-
-        # ════ SCHEDA 1: DETTAGLIO CORRENTE ════════════════════════════════
-        tab1 = tk.Frame(nb, bg=BG)
-        nb.add(tab1, text="  Dettaglio attuale  ")
-
-        content = tk.Frame(tab1, bg=BG)
-        content.pack(fill="both", expand=True, padx=24, pady=18)
-
-        def riga(parent, lbl, val, val_color=TEXT):
-            f = tk.Frame(parent, bg=SURFACE,
-                         highlightbackground=BORDER, highlightthickness=1)
-            f.pack(fill="x", pady=3)
-            tk.Label(f, text=lbl, bg=SURFACE, fg=TEXT_DIM,
-                     font=("Segoe UI", 8, "bold"), width=18, anchor="w",
-                     padx=12, pady=8).pack(side="left")
-            tk.Frame(f, bg=BORDER, width=1).pack(side="left", fill="y")
-            tk.Label(f, text=val or "—", bg=SURFACE, fg=val_color,
-                     font=("Segoe UI", 10), anchor="w",
-                     padx=12, pady=8, wraplength=340).pack(side="left", fill="x", expand=True)
-
-        riga(content, "Indirizzo", r["indirizzo"])
-        riga(content, "Data rilascio", format_date(r["rilascio"]))
-
-        scad_color = DANGER if st=="expired" else WARNING if st=="soon" else SUCCESS
-        riga(content, "Data scadenza", format_date(r["scadenza"]), scad_color)
-
-        stato_txt = {
-            "expired": f"⚠ SCADUTO  ({abs(giorni_rimanenti(r['scadenza']))} giorni fa)",
-            "soon":    f"⏳ In scadenza fra {giorni_rimanenti(r['scadenza'])} giorni",
-            "valid":   "✓ Valido",
-        }.get(st, "—")
-        riga(content, "Stato", stato_txt, scad_color if st else TEXT)
-        riga(content, "Note / Certificato", r["note"])
-        riga(content, "File sorgente", r["source"])
-
-        # ════ SCHEDA 2: STORICO ANNI ══════════════════════════════════════
-        tab2 = tk.Frame(nb, bg=BG)
-        nb.add(tab2, text=f"  Storico ({len(storico)})  ")
-
-        if len(storico) <= 1:
-            tk.Label(tab2, text="Nessun altro pass trovato negli anni precedenti.",
-                     bg=BG, fg=TEXT_DIM, font=("Segoe UI", 10),
-                     pady=40).pack()
-        else:
-            # Scrollable canvas per la timeline
-            canvas_frame = tk.Frame(tab2, bg=BG)
-            canvas_frame.pack(fill="both", expand=True)
-
-            vsb2 = ttk.Scrollbar(canvas_frame, orient="vertical")
-            vsb2.pack(side="right", fill="y")
-
-            canvas = tk.Canvas(canvas_frame, bg=BG, bd=0,
-                               highlightthickness=0,
-                               yscrollcommand=vsb2.set)
-            canvas.pack(side="left", fill="both", expand=True)
-            vsb2.config(command=canvas.yview)
-
-            inner = tk.Frame(canvas, bg=BG)
-            canvas_window = canvas.create_window((0, 0), window=inner, anchor="nw")
-
-            def _on_configure(e):
-                canvas.configure(scrollregion=canvas.bbox("all"))
-                canvas.itemconfig(canvas_window, width=canvas.winfo_width())
-            inner.bind("<Configure>", _on_configure)
-            canvas.bind("<Configure>",
-                        lambda e: canvas.itemconfig(canvas_window, width=e.width))
-
-            # Mousewheel
-            def _scroll(e):
-                canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-            canvas.bind_all("<MouseWheel>", _scroll)
-            win.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>"))
-
-            # Disegna timeline
-            for i, rec in enumerate(storico):
-                rec_st = get_status(rec["scadenza"])
-                is_current = (rec["source"] == r["source"] and rec["numero"] == r["numero"])
-
-                dot_color = (DANGER  if rec_st == "expired" else
-                             WARNING if rec_st == "soon"    else
-                             SUCCESS if rec_st == "valid"   else TEXT_DIM)
-
-                row_bg = SURFACE
-                border_col = ACCENT if is_current else BORDER
-
-                # Riga card
-                card = tk.Frame(inner, bg=row_bg,
-                                highlightbackground=border_col,
-                                highlightthickness=2 if is_current else 1)
-                card.pack(fill="x", padx=16, pady=5)
-
-                # Pallino colorato a sinistra (timeline dot)
-                dot_col = tk.Frame(card, bg=dot_color, width=6)
-                dot_col.pack(side="left", fill="y")
-
-                card_body = tk.Frame(card, bg=row_bg)
-                card_body.pack(side="left", fill="x", expand=True, padx=14, pady=10)
-
-                # Anno/file + badge "attuale"
-                top_row = tk.Frame(card_body, bg=row_bg)
-                top_row.pack(fill="x")
-
-                anno_label = rec["source"].replace("REGISTRO INVALIDI COMUNE ", "").replace(".xlsx", "")
-                tk.Label(top_row, text=f"📁 {anno_label}",
-                         bg=row_bg, fg=TEXT_MUTED,
-                         font=("Segoe UI", 8, "bold")).pack(side="left")
-
-                if is_current:
-                    tk.Label(top_row, text=" ← attuale",
-                             bg=row_bg, fg=ACCENT,
-                             font=("Segoe UI", 8, "bold")).pack(side="left")
-
-                tk.Label(top_row, text=f"N° {rec['numero']}",
-                         bg=row_bg, fg=TEXT_DIM,
-                         font=("Segoe UI", 8)).pack(side="right")
-
-                # Date rilascio → scadenza
-                dates_row = tk.Frame(card_body, bg=row_bg)
-                dates_row.pack(fill="x", pady=(4, 0))
-
-                tk.Label(dates_row,
-                         text=f"Rilascio: {format_date(rec['rilascio'])}",
-                         bg=row_bg, fg=TEXT,
-                         font=("Segoe UI", 9)).pack(side="left")
-
-                tk.Label(dates_row, text=" → ", bg=row_bg, fg=TEXT_DIM,
-                         font=("Segoe UI", 9)).pack(side="left")
-
-                tk.Label(dates_row,
-                         text=f"Scadenza: {format_date(rec['scadenza'])}",
-                         bg=row_bg, fg=dot_color,
-                         font=("Segoe UI", 9, "bold")).pack(side="left")
-
-                # Note
-                if rec["note"]:
-                    tk.Label(card_body, text=rec["note"],
-                             bg=row_bg, fg=TEXT_MUTED,
-                             font=("Segoe UI", 8),
-                             anchor="w", wraplength=400).pack(fill="x", pady=(3, 0))
-
-        # ── Pulsante Chiudi ────────────────────────────────────────────────
-        footer = tk.Frame(win, bg=BG)
-        footer.pack(fill="x", pady=(4, 0))
-        tk.Frame(footer, bg=BORDER, height=1).pack(fill="x")
-        tk.Button(footer, text="Chiudi", bg=ACCENT, fg="white",
-                  font=("Segoe UI", 10, "bold"), relief="flat",
-                  padx=28, pady=10, cursor="hand2",
-                  activebackground=ACCENT_DARK,
-                  command=win.destroy).pack(pady=12)
-
-    # ── FILTRI ────────────────────────────────────────────────────────────────
+    # --- FILTRI ---
 
     def apri_cartella(self):
         """Apre la cartella di rete in Esplora File."""
@@ -1492,7 +1230,7 @@ finally {
     @staticmethod
     def _blankish(value) -> bool:
         text = str(value or "").strip().lower()
-        return text in {"", "-", "—", "none", "nan"}
+        return text in {"", "-", "none", "nan"}
 
     def _is_empty_slot(self, record: dict) -> bool:
         fields = (
@@ -1614,19 +1352,30 @@ finally {
         win.resizable(False, False)
         win.grab_set()
 
+        edit_record = record_to_edit or {}
+        cognome_default = str(edit_record.get("cognome", "")).strip()
+        nome_default = str(edit_record.get("nome_proprio", "")).strip()
+        if not cognome_default and not nome_default:
+            cognome_default, nome_default = self._split_cognome_nome(edit_record.get("nome", ""))
+
+        vars_map = {
+            "cognome": tk.StringVar(value=cognome_default),
+            "nome": tk.StringVar(value=nome_default),
+            "nato_il": tk.StringVar(value=format_date(edit_record.get("nato_il", "")) if edit_record else ""),
+            "indirizzo": tk.StringVar(value=str(edit_record.get("indirizzo", "")).strip()),
+            "rilascio": tk.StringVar(value=format_date(edit_record.get("rilascio", "")) if edit_record else ""),
+            "scadenza": tk.StringVar(value=format_date(edit_record.get("scadenza", "")) if edit_record else ""),
+            "note": tk.StringVar(value=str(edit_record.get("note", "")).strip()),
+        }
+
         body = tk.Frame(win, bg=SURFACE, highlightbackground=BORDER, highlightthickness=1)
         body.pack(fill="both", expand=True, padx=14, pady=14)
 
-        vars_map = {
-            "nome": tk.StringVar(value=str((record_to_edit or {}).get("nome", "")).strip()),
-            "indirizzo": tk.StringVar(value=str((record_to_edit or {}).get("indirizzo", "")).strip()),
-            "rilascio": tk.StringVar(value=format_date((record_to_edit or {}).get("rilascio", "")) if record_to_edit else ""),
-            "scadenza": tk.StringVar(value=format_date((record_to_edit or {}).get("scadenza", "")) if record_to_edit else ""),
-            "note": tk.StringVar(value=str((record_to_edit or {}).get("note", "")).strip()),
-        }
         fields = [
-            ("Cognome e Nome", "nome"),
-            ("Indirizzo", "indirizzo"),
+            ("Cognome", "cognome"),
+            ("Nome", "nome"),
+            ("Nato il (GG/MM/AAAA)", "nato_il"),
+            ("Indirizzo di residenza", "indirizzo"),
             ("Rilascio (GG/MM/AAAA)", "rilascio"),
             ("Scadenza (GG/MM/AAAA)", "scadenza"),
             ("Note", "note"),
@@ -1640,7 +1389,7 @@ finally {
                 bg=SURFACE,
                 fg=TEXT_MUTED,
                 font=("Segoe UI", 9, "bold"),
-                width=24,
+                width=28,
                 anchor="w",
             ).pack(side="left")
             tk.Entry(
@@ -1653,28 +1402,87 @@ finally {
                 bd=1,
             ).pack(side="left", fill="x", expand=True, ipady=4)
 
+        hint = tk.Label(
+            body,
+            text="La scadenza viene proposta automaticamente da rilascio + data nascita. Puoi correggerla prima del salvataggio.",
+            bg=SURFACE,
+            fg=TEXT_DIM,
+            font=("Segoe UI", 8),
+            anchor="w",
+            justify="left",
+        )
+        hint.pack(fill="x", padx=12, pady=(0, 6))
+
+        def refresh_scadenza_auto(*_args):
+            data_rilascio = parse_date(vars_map["rilascio"].get().strip())
+            data_nascita = parse_date(vars_map["nato_il"].get().strip())
+            if data_rilascio is None or data_nascita is None:
+                return
+            auto_scadenza = self._compute_authorization_expiry(data_rilascio, data_nascita)
+            vars_map["scadenza"].set(auto_scadenza.strftime("%d/%m/%Y"))
+
+        vars_map["rilascio"].trace_add("write", refresh_scadenza_auto)
+        vars_map["nato_il"].trace_add("write", refresh_scadenza_auto)
+
         footer = tk.Frame(body, bg=SURFACE)
         footer.pack(fill="x", padx=12, pady=(8, 12))
 
         def conferma():
-            nome = vars_map["nome"].get().strip().upper()
+            cognome = vars_map["cognome"].get().strip().upper()
+            nome_proprio = vars_map["nome"].get().strip()
+            nato_il_text = vars_map["nato_il"].get().strip()
             indirizzo = vars_map["indirizzo"].get().strip()
-            rilascio = vars_map["rilascio"].get().strip()
-            scadenza = vars_map["scadenza"].get().strip()
+            rilascio_text = vars_map["rilascio"].get().strip()
+            scadenza_text = vars_map["scadenza"].get().strip()
             note = vars_map["note"].get().strip()
 
-            if not nome:
-                messagebox.showwarning("Dati incompleti", "Inserisci Cognome e Nome.", parent=win)
+            if not cognome:
+                messagebox.showwarning("Dati incompleti", "Inserisci il cognome.", parent=win)
+                return
+            if not nome_proprio:
+                messagebox.showwarning("Dati incompleti", "Inserisci il nome.", parent=win)
                 return
             if not indirizzo:
-                messagebox.showwarning("Dati incompleti", "Inserisci l'indirizzo.", parent=win)
+                messagebox.showwarning("Dati incompleti", "Inserisci l'indirizzo di residenza.", parent=win)
                 return
-            if parse_date(rilascio) is None:
+
+            data_nascita = parse_date(nato_il_text)
+            if data_nascita is None:
+                messagebox.showwarning("Data non valida", "Data nascita non valida. Usa GG/MM/AAAA.", parent=win)
+                return
+
+            data_rilascio = parse_date(rilascio_text)
+            if data_rilascio is None:
                 messagebox.showwarning("Data non valida", "Data rilascio non valida. Usa GG/MM/AAAA.", parent=win)
                 return
-            if parse_date(scadenza) is None:
+
+            data_scadenza = parse_date(scadenza_text)
+            if data_scadenza is None:
                 messagebox.showwarning("Data non valida", "Data scadenza non valida. Usa GG/MM/AAAA.", parent=win)
                 return
+
+            auto_scadenza = self._compute_authorization_expiry(data_rilascio, data_nascita)
+            auto_text = auto_scadenza.strftime("%d/%m/%Y")
+            current_text = data_scadenza.strftime("%d/%m/%Y")
+            if current_text != auto_text:
+                keep_custom = messagebox.askyesno(
+                    "Conferma scadenza",
+                    (
+                        f"Scadenza calcolata automaticamente: {auto_text}\n"
+                        f"Scadenza inserita: {current_text}\n\n"
+                        "Vuoi mantenere la scadenza inserita?"
+                    ),
+                    parent=win,
+                )
+                if not keep_custom:
+                    return
+            else:
+                if not messagebox.askyesno(
+                    "Conferma scadenza",
+                    f"Scadenza automatica proposta: {auto_text}\nConfermi questa scadenza?",
+                    parent=win,
+                ):
+                    return
 
             if not messagebox.askyesno(
                 "Conferma modifica" if is_edit else "Conferma inserimento",
@@ -1700,6 +1508,7 @@ finally {
                 numero, target_record, original_snapshot, mode = self._reserve_numero_slot()
                 source_name = self._current_source_name()
 
+            full_name_upper = self._compose_full_name(cognome, nome_proprio)
             if target_record is None:
                 target_record = {"numero": numero, "source": source_name, "_pending": True}
                 self.all_records.append(target_record)
@@ -1709,10 +1518,13 @@ finally {
             target_record.update(
                 {
                     "numero": numero,
-                    "nome": nome,
+                    "cognome": cognome,
+                    "nome_proprio": nome_proprio.strip(),
+                    "nome": full_name_upper,
+                    "nato_il": data_nascita.strftime("%d/%m/%Y"),
                     "indirizzo": indirizzo,
-                    "rilascio": rilascio,
-                    "scadenza": scadenza,
+                    "rilascio": data_rilascio.strftime("%d/%m/%Y"),
+                    "scadenza": data_scadenza.strftime("%d/%m/%Y"),
                     "note": note,
                     "source": source_name,
                 }
@@ -1723,10 +1535,13 @@ finally {
                     "mode": mode,
                     "source": source_name,
                     "numero": numero,
-                    "nome": nome,
+                    "cognome": cognome,
+                    "nome_proprio": nome_proprio.strip(),
+                    "nome": full_name_upper,
+                    "nato_il": data_nascita.strftime("%d/%m/%Y"),
                     "indirizzo": indirizzo,
-                    "rilascio": rilascio,
-                    "scadenza": scadenza,
+                    "rilascio": data_rilascio.strftime("%d/%m/%Y"),
+                    "scadenza": data_scadenza.strftime("%d/%m/%Y"),
                     "note": note,
                     "original_snapshot": original_snapshot,
                 }
@@ -1776,49 +1591,137 @@ finally {
         wb = openpyxl.load_workbook(workbook_path)
         ws = wb.active
 
+        wb_values = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+        ws_values = wb_values.active
+        row_by_numero: dict[int, int] = {}
+        empty_rows: list[int] = []
+        next_append_row = ws.max_row + 1
+        for row_idx in range(1, ws_values.max_row + 1):
+            num_val = ws_values.cell(row=row_idx, column=1).value
+            text_val = ws_values.cell(row=row_idx, column=2).value
+            try:
+                numero = int(float(str(num_val).strip()))
+            except (TypeError, ValueError):
+                numero = None
+            if numero is not None:
+                row_by_numero[numero] = row_idx
+                if text_val is None or str(text_val).strip() == "":
+                    empty_rows.append(row_idx)
+        wb_values.close()
+
         def maybe_date(text):
             parsed = parse_date(text)
             return parsed if parsed is not None else text
 
-        def cell_num(value):
-            try:
-                return int(float(str(value).strip()))
-            except (TypeError, ValueError):
-                return None
-
         for rec in self._pending_new_records:
-            numero = cell_num(rec.get("numero"))
-            if numero is None:
+            try:
+                numero = int(str(rec.get("numero", "")).strip())
+            except (TypeError, ValueError):
                 continue
-            target_row = None
-            for row_idx in range(1, ws.max_row + 1):
-                if cell_num(ws.cell(row=row_idx, column=1).value) == numero:
-                    target_row = row_idx
-                    break
-            if target_row is None:
-                target_row = ws.max_row + 1
 
-            ws.cell(row=target_row, column=1, value=numero)
-            ws.cell(row=target_row, column=2, value=rec.get("nome", ""))
-            ws.cell(row=target_row, column=3, value=rec.get("indirizzo", ""))
-            ws.cell(row=target_row, column=4, value=maybe_date(rec.get("rilascio", "")))
-            ws.cell(row=target_row, column=5, value=maybe_date(rec.get("scadenza", "")))
-            ws.cell(row=target_row, column=7, value=rec.get("note", ""))
+            target_row = row_by_numero.get(numero)
+            if target_row is None:
+                if empty_rows:
+                    target_row = empty_rows.pop(0)
+                else:
+                    target_row = next_append_row
+                    next_append_row += 1
+                ws.cell(row=target_row, column=1, value=numero)
+                row_by_numero[numero] = target_row
+
+            generalita = self._compose_generalita_indirizzo(
+                rec.get("cognome", ""),
+                rec.get("nome_proprio", ""),
+                rec.get("indirizzo", ""),
+            )
+
+            ws.cell(row=target_row, column=2, value=generalita)
+            ws.cell(row=target_row, column=3, value=maybe_date(rec.get("rilascio", "")))
+            ws.cell(row=target_row, column=4, value=maybe_date(rec.get("scadenza", "")))
+            ws.cell(row=target_row, column=5, value=rec.get("note", ""))
+
         wb.save(workbook_path)
         wb.close()
 
     def _write_pending_with_excel_com(self, workbook_path: Path):
+        wb_values = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+        ws_values = wb_values.active
+
+        def numero_da_cella(value) -> int | None:
+            if value is None:
+                return None
+            if isinstance(value, bool):
+                return None
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float):
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    return None
+            txt = str(value).strip()
+            if not txt:
+                return None
+            m = re.match(r"^(\d+)(?:\s|$)", txt)
+            if not m:
+                return None
+            try:
+                return int(m.group(1))
+            except (TypeError, ValueError):
+                return None
+
+        row_by_numero: dict[int, int] = {}
+        empty_rows: list[int] = []
+        last_numbered_row = 1
+        for row_idx in range(1, ws_values.max_row + 1):
+            numero = numero_da_cella(ws_values.cell(row=row_idx, column=1).value)
+            if numero is None:
+                continue
+            if numero not in row_by_numero:
+                row_by_numero[numero] = row_idx
+            if row_idx > last_numbered_row:
+                last_numbered_row = row_idx
+            generalita = ws_values.cell(row=row_idx, column=2).value
+            if generalita is None or str(generalita).strip() == "":
+                empty_rows.append(row_idx)
+        wb_values.close()
+
         payload = [
             {
                 "numero": rec.get("numero", ""),
-                "nome": rec.get("nome", ""),
+                "generalita": self._compose_generalita_indirizzo(
+                    rec.get("cognome", ""),
+                    rec.get("nome_proprio", ""),
+                    rec.get("indirizzo", ""),
+                ),
                 "indirizzo": rec.get("indirizzo", ""),
                 "rilascio": rec.get("rilascio", ""),
                 "scadenza": rec.get("scadenza", ""),
                 "note": rec.get("note", ""),
+                "target_row": None,
+                "set_numero": False,
             }
             for rec in self._pending_new_records
         ]
+
+        for item in payload:
+            try:
+                numero = int(str(item.get("numero", "")).strip())
+            except (TypeError, ValueError):
+                continue
+
+            target_row = row_by_numero.get(numero)
+            set_numero = False
+            if target_row is None:
+                if empty_rows:
+                    target_row = empty_rows.pop(0)
+                else:
+                    last_numbered_row += 1
+                    target_row = last_numbered_row
+                    set_numero = True
+            item["target_row"] = target_row
+            item["set_numero"] = set_numero
+            row_by_numero[numero] = target_row
 
         ps_script = r"""
 param(
@@ -1837,28 +1740,67 @@ try {
     $wb = $excel.Workbooks.Open($WorkbookPath)
     $ws = $wb.Worksheets.Item(1)
     foreach ($item in $items) {
-        $targetRow = $null
+        $targetRow = 0
+        [void][int]::TryParse([string]$item.target_row, [ref]$targetRow)
+        $setNumero = $false
+        try { $setNumero = [bool]$item.set_numero } catch {}
         $numero = [string]$item.numero
         $usedStart = $ws.UsedRange.Row
         $usedEnd = $ws.UsedRange.Row + $ws.UsedRange.Rows.Count - 1
-        for ($r = $usedStart; $r -le $usedEnd; $r++) {
-            $value = [string]$ws.Cells.Item($r, 1).Text
-            if ([string]::IsNullOrWhiteSpace($value)) { continue }
-            if ($value.Trim() -eq $numero.Trim()) {
-                $targetRow = $r
-                break
+
+        if ($targetRow -le 0) {
+            for ($r = $usedStart; $r -le $usedEnd; $r++) {
+                $value = [string]$ws.Cells.Item($r, 1).Text
+                if ([string]::IsNullOrWhiteSpace($value)) { continue }
+                if ($value.Trim() -eq $numero.Trim()) {
+                    $targetRow = $r
+                    break
+                }
             }
         }
-        if ($targetRow -eq $null) {
+        if ($targetRow -le 0) {
+            for ($r = $usedStart; $r -le $usedEnd; $r++) {
+                $numText = [string]$ws.Cells.Item($r, 1).Text
+                $genText = [string]$ws.Cells.Item($r, 2).Text
+                if (-not [string]::IsNullOrWhiteSpace($numText) -and [string]::IsNullOrWhiteSpace($genText)) {
+                    $targetRow = $r
+                    break
+                }
+            }
+        }
+        if ($targetRow -le 0) {
             $targetRow = $usedEnd + 1
+            $setNumero = $true
+        }
+        if ($setNumero -or [string]::IsNullOrWhiteSpace([string]$ws.Cells.Item($targetRow, 1).Text)) {
+            $ws.Cells.Item($targetRow, 1).Value2 = [string]$item.numero
         }
 
-        $ws.Cells.Item($targetRow, 1).Value2 = [string]$item.numero
-        $ws.Cells.Item($targetRow, 2).Value2 = [string]$item.nome
-        $ws.Cells.Item($targetRow, 3).Value2 = [string]$item.indirizzo
-        $ws.Cells.Item($targetRow, 4).Value2 = [string]$item.rilascio
-        $ws.Cells.Item($targetRow, 5).Value2 = [string]$item.scadenza
-        $ws.Cells.Item($targetRow, 7).Value2 = [string]$item.note
+        $ws.Cells.Item($targetRow, 2).Value2 = [string]$item.generalita
+        $ws.Cells.Item($targetRow, 3).Value2 = [string]$item.rilascio
+        $ws.Cells.Item($targetRow, 4).Value2 = [string]$item.scadenza
+        $ws.Cells.Item($targetRow, 5).Value2 = [string]$item.note
+
+        $numeroPattern = "^\s*" + [regex]::Escape($numero.Trim()) + "(\D|$)"
+        for ($r = $usedStart; $r -le $usedEnd; $r++) {
+            if ($r -eq $targetRow) { continue }
+            $numText = [string]$ws.Cells.Item($r, 1).Text
+            if ([string]::IsNullOrWhiteSpace($numText)) { continue }
+            if ($numText -match $numeroPattern) {
+                $genText = [string]$ws.Cells.Item($r, 2).Text
+                $rilText = [string]$ws.Cells.Item($r, 3).Text
+                $scaText = [string]$ws.Cells.Item($r, 4).Text
+                $noteText = [string]$ws.Cells.Item($r, 5).Text
+                if (
+                    -not [string]::IsNullOrWhiteSpace($genText) -or
+                    -not [string]::IsNullOrWhiteSpace($rilText) -or
+                    -not [string]::IsNullOrWhiteSpace($scaText) -or
+                    -not [string]::IsNullOrWhiteSpace($noteText)
+                ) {
+                    $ws.Range($ws.Cells.Item($r, 1), $ws.Cells.Item($r, 5)).ClearContents()
+                }
+            }
+        }
     }
     $wb.Save()
 }
@@ -1913,10 +1855,7 @@ finally {
             return False
 
         try:
-            if suffix == ".xlsx":
-                self._write_pending_to_xlsx(self._working_copy_file)
-            else:
-                self._write_pending_with_excel_com(self._working_copy_file)
+            self._write_pending_with_excel_com(self._working_copy_file)
             shutil.copy2(self._working_copy_file, self._primary_source_file)
         except Exception as exc:
             logger.exception("Errore salvataggio modifiche pass invalidi")
@@ -1945,6 +1884,22 @@ finally {
         return cognome, nome
 
     @staticmethod
+    def _compose_full_name(cognome: str, nome: str) -> str:
+        left = str(cognome or "").strip().upper()
+        right = str(nome or "").strip().upper()
+        if left and right:
+            return f"{left} {right}"
+        return left or right
+
+    @staticmethod
+    def _compose_generalita_indirizzo(cognome: str, nome: str, indirizzo: str) -> str:
+        full_name = PassInvalidiFrame._compose_full_name(cognome, nome)
+        address = str(indirizzo or "").strip().upper()
+        if full_name and address:
+            return f"{full_name} - {address}"
+        return full_name or address
+
+    @staticmethod
     def _compute_authorization_expiry(protocol_date: datetime.date, birth_date: datetime.date) -> datetime.date:
         plus_years = 5 if (protocol_date.month, protocol_date.day) <= (birth_date.month, birth_date.day) else 6
         target_year = protocol_date.year + plus_years
@@ -1966,10 +1921,29 @@ finally {
         if not docs_dir.exists():
             return None
 
-        for pattern in ("*Autoriz*.doc", "*autoriz*.doc", "*.doc"):
+        preferred_patterns = (
+            "*Guida*.doc",
+            "*guida*.doc",
+            "*Template*.doc",
+            "*template*.doc",
+            "*Guida*.docx",
+            "*guida*.docx",
+            "*Template*.docx",
+            "*template*.docx",
+        )
+        for pattern in preferred_patterns:
             matches = sorted(docs_dir.glob(pattern))
             if matches:
                 return matches[0]
+
+        candidates = sorted(list(docs_dir.glob("*.doc")) + list(docs_dir.glob("*.docx")))
+        for path in candidates:
+            normalized = self._normalize_text_for_match(path.stem)
+            if "autoriz" not in normalized:
+                continue
+            if re.search(r"\bn\.?\s*\d+\b", normalized):
+                continue
+            return path
         return None
 
     def _authorization_year_for_record(self, record: dict) -> int:
@@ -1985,7 +1959,10 @@ finally {
         docs_dir = Path(AUTH_DOCS_DIR)
         if not docs_dir.exists():
             return None
-        cognome, nome = self._split_cognome_nome(record.get("nome", ""))
+        cognome = str(record.get("cognome", "")).strip()
+        nome = str(record.get("nome_proprio", "")).strip()
+        if not cognome and not nome:
+            cognome, nome = self._split_cognome_nome(record.get("nome", ""))
         numero = str(record.get("numero", "")).strip()
         year = str(self._authorization_year_for_record(record))
         cognome_n = self._normalize_text_for_match(cognome)
@@ -2060,20 +2037,28 @@ try {
         foreach ($par in $Doc.Paragraphs) {
             $line = [string]$par.Range.Text
             $line = $line -replace "[`r`a]", ""
+            $line = $line.Trim()
             if ($line -match $Pattern) {
                 $par.Range.Text = $NewText + "`r"
-                return $true
+                return $par
             }
         }
-        return $false
+        return $null
     }
 
-    $null = Set-ParagraphLine $doc "AUTORIZZAZIONE\s*N\." ("AUTORIZZAZIONE N.{0}/{1}" -f $AuthNumber, $Year)
+    $null = Set-ParagraphLine $doc "AUTORIZZAZIONE\s*N\." ("AUTORIZZAZIONE N. {0}/{1}" -f $AuthNumber, $Year)
     $null = Set-ParagraphLine $doc "Rilascio del .*Validit" ("Rilascio del {0} Validita sino {1}" -f $ReleaseDate, $ExpiryDate)
-    $null = Set-ParagraphLine $doc "Vista la richiesta prot\." ("Vista la richiesta prot. n. {0} del {1}" -f $ProtocolNumber, $ProtocolDate)
-    $sigLine = ("{0} {1} {2} {3} a {4} il {5} residente a {6} in {7}" -f $Sigla, $Cognome, $Nome, $NatoWord, $BirthPlace, $BirthDate, $ResidenceCity, $ResidenceAddress)
-    $null = Set-ParagraphLine $doc "^(Sig\.|Sig\.ra|Sig.ra|Sig)\b" $sigLine
-    $null = Set-ParagraphLine $doc "(PEGOGNAGA|Pegognaga|l[iì])" ("{0} il {1}" -f $IssueCity.ToUpper(), $IssueDate)
+    $vistaPar = Set-ParagraphLine $doc "Vista la richiesta prot\." ("Vista la richiesta prot. n. {0} del {1}" -f $ProtocolNumber, $ProtocolDate)
+    if ($vistaPar -ne $null) {
+        $vistaPar.Range.Font.Bold = 0
+        $start = $vistaPar.Range.Start
+        $vistaRange = $doc.Range($start, $start + 5)
+        $vistaRange.Font.Bold = 1
+    }
+    $intro = if ($Sigla -eq "Sig.ra") { "Alla" } else { "Al" }
+    $sigLine = ("{0} {1} {2} {3} {4} a {5} il {6} residente a {7} in {8}" -f $intro, $Sigla, $Cognome, $Nome, $NatoWord, $BirthPlace, $BirthDate, $ResidenceCity, $ResidenceAddress)
+    $null = Set-ParagraphLine $doc "^(Al|Alla)\s+(Sig\.|Sig\.ra|Sig.ra|Sig)\b" $sigLine
+    $null = Set-ParagraphLine $doc "PEGOGNAGA\s+il" ("{0} il {1}" -f $IssueCity.ToUpper(), $IssueDate)
 
     $doc.Save()
 }
@@ -2158,7 +2143,7 @@ finally {
             "cognome": tk.StringVar(value=cognome_default),
             "nome": tk.StringVar(value=nome_default),
             "luogo_nascita": tk.StringVar(),
-            "data_nascita": tk.StringVar(),
+            "data_nascita": tk.StringVar(value=format_date(record.get("nato_il", ""))),
             "comune_residenza": tk.StringVar(value="Pegognaga"),
             "indirizzo_residenza": tk.StringVar(value=str(record.get("indirizzo", "")).strip()),
             "data_scadenza": tk.StringVar(value=expiry_default.strftime("%d/%m/%Y")),
@@ -2284,11 +2269,11 @@ finally {
                 return
 
             year = protocol_date.year
-            output_path = docs_dir / f"{cognome} {nome} Autoriz. disabili n. {numero} {year}.doc"
+            output_path = docs_dir / f"{cognome} {nome} Autoriz. disabili n. {numero} {year}{template_path.suffix}"
             if output_path.exists():
                 if not messagebox.askyesno(
-                    "File già esistente",
-                    f"Il file esiste già:\n{output_path}\n\nVuoi sovrascriverlo?",
+                    "File gia esistente",
+                    f"Il file esiste gia:\n{output_path}\n\nVuoi sovrascriverlo?",
                     parent=win,
                 ):
                     return
@@ -2372,6 +2357,7 @@ finally {
         fields = [
             ("Numero", str(record.get("numero", "-"))),
             ("Cognome e Nome", str(record.get("nome", "-"))),
+            ("Nato il", format_date(record.get("nato_il"))),
             ("Indirizzo", str(record.get("indirizzo", "-"))),
             ("Rilascio", format_date(record.get("rilascio"))),
             ("Scadenza", format_date(record.get("scadenza"))),
@@ -2440,3 +2426,4 @@ finally {
             pady=8,
             command=win.destroy,
         ).pack(side="right")
+

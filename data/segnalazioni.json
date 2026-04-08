@@ -1,22 +1,22 @@
 {
   "segnalazioni": [
     {
-      "numero_progressivo": 7,
+      "numero_progressivo": 8,
       "anno": "2026",
-      "mese": "03",
-      "giorno": "30",
-      "ora": "17:20",
-      "nominativo": "Marco Muzzica",
-      "residenza": "Viadana (MN)",
-      "indirizzo": "Via Manfrassina, 49G",
-      "telefono": "3273834020",
+      "mese": "04",
+      "giorno": "08",
+      "ora": "09:23",
+      "nominativo": "Malavasi Claudia",
+      "residenza": "Polla",
+      "indirizzo": "Via Polla, 7",
+      "telefono": "3331234567",
       "modalita_segnalazione": "Personalmente",
-      "descrizione_segnalazione": "Segnala che ci sono polli che volano",
-      "ricevente": "Claudia",
-      "agente_verificatore": "",
-      "verifica_effettuata": "",
-      "data_verifica": "",
-      "stato": "in_corso"
+      "descrizione_segnalazione": "Segnala che ci sono troppi polli volanti in giro e la cosa la preoccupa non poco",
+      "ricevente": "Power Marcus",
+      "agente_verificatore": "Power Marcus",
+      "verifica_effettuata": "L'agente Marcus Power dichiara esplicitamente l'instabilità mentale della Signora Malavasi Claudia. Richieste visite mediche neurali prima possibile.",
+      "data_verifica": "08/04/2026",
+      "stato": "archiviata"
     }
   ]
 }
