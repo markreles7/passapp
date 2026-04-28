@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -8,12 +9,15 @@ from typing import Any
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "data" / "config.json"
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "paths": {
         "log_file": "data/passapp.log",
         "segnalazioni_file": "data/segnalazioni.json",
         "documents_dir": "documenti",
         "segnalazioni_pdf_dir": "documenti/segnalazioni_pdf",
+        "fascicoli_segnalazioni_dir": "documenti/fascicoli_segnalazioni",
         "logo_path": "assets/logo.jpg",
         "pass_invalidi_network_folder": r"R:\Polizia_locale\INVALIDI",
         "pass_invalidi_pattern": "REGISTRO INVALIDI COMUNE*.xlsx",
@@ -84,6 +88,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 _CONFIG_CACHE: dict[str, Any] | None = None
+_CONFIG_DIAGNOSTIC: str | None = None
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -97,22 +102,31 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def load_config(force_reload: bool = False) -> dict[str, Any]:
-    global _CONFIG_CACHE
+    global _CONFIG_CACHE, _CONFIG_DIAGNOSTIC
     if _CONFIG_CACHE is not None and not force_reload:
         return _CONFIG_CACHE
 
     config = deepcopy(DEFAULT_CONFIG)
+    _CONFIG_DIAGNOSTIC = None
     try:
         raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             config = _deep_merge(config, raw)
     except FileNotFoundError:
         pass
-    except (OSError, json.JSONDecodeError):
-        pass
+    except json.JSONDecodeError as exc:
+        _CONFIG_DIAGNOSTIC = f"Configurazione JSON non valida in {CONFIG_PATH}: {exc}"
+        logger.warning(_CONFIG_DIAGNOSTIC)
+    except OSError as exc:
+        _CONFIG_DIAGNOSTIC = f"Configurazione non leggibile in {CONFIG_PATH}: {exc}"
+        logger.warning(_CONFIG_DIAGNOSTIC)
 
     _CONFIG_CACHE = config
     return config
+
+
+def get_config_diagnostic() -> str | None:
+    return _CONFIG_DIAGNOSTIC
 
 
 def resolve_path(value: str | Path) -> Path:

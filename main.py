@@ -1,6 +1,13 @@
+import threading
 import tkinter as tk
+from tkinter import ttk
 
 from app_config import load_config
+from core.dashboard_service import ERROR as DASHBOARD_ERROR
+from core.dashboard_service import OK as DASHBOARD_OK
+from core.dashboard_service import WARNING as DASHBOARD_WARNING
+from core.dashboard_service import collect_dashboard_snapshot
+from core.diagnostics import ERROR, OK, WARNING, run_diagnostics
 from ospitalita_stranieri import OspitalitaStranieriFrame
 from pass_invalidi import PassInvalidiFrame
 from segnalazioni import SegnalazioniFrame
@@ -15,6 +22,7 @@ BG = THEME["bg"]
 SURFACE = THEME["surface"]
 BORDER = THEME["border"]
 ACCENT = THEME["accent"]
+ACCENT_DARK = THEME["accent_dark"]
 TEXT = THEME["text"]
 TEXT_MUTED = THEME["text_muted"]
 
@@ -23,6 +31,9 @@ class MainMenuFrame(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent, bg=BG)
         self.controller = controller
+        self.dashboard_cards = {}
+        self.dashboard_status_var = tk.StringVar(value="Dashboard non aggiornata")
+        self._dashboard_loading = False
         self._build_ui()
 
     def on_show(self):
@@ -77,14 +88,55 @@ class MainMenuFrame(tk.Frame):
             font=("Segoe UI", 10),
         ).pack(anchor="w", pady=(6, 0))
 
+        actions = tk.Frame(title_wrap, bg=SURFACE)
+        actions.pack(side="right", padx=(12, 0))
+
+        tk.Button(
+            actions,
+            text="Aggiorna dashboard",
+            bg=ACCENT,
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground=ACCENT_DARK,
+            padx=14,
+            pady=9,
+            command=self.refresh_dashboard,
+        ).pack(side="left")
+
+        tk.Button(
+            actions,
+            text="Verifica configurazione",
+            bg=BG,
+            fg=TEXT,
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground=BORDER,
+            padx=14,
+            pady=9,
+            command=self._show_diagnostics,
+        ).pack(side="left", padx=(10, 0))
+
         cards = tk.Frame(shell, bg=BG)
         cards.pack(fill="both", expand=True, pady=(14, 0))
 
-        self._module_card(cards, MODULES["pass_invalidi"], "PassInvalidiFrame")
-        self._module_card(cards, MODULES["segnalazioni"], "SegnalazioniFrame")
-        self._module_card(cards, MODULES["ospitalita"], "OspitalitaStranieriFrame")
+        self._module_card(cards, MODULES["pass_invalidi"], "PassInvalidiFrame", "pass_invalidi")
+        self._module_card(cards, MODULES["segnalazioni"], "SegnalazioniFrame", "segnalazioni")
+        self._module_card(cards, MODULES["ospitalita"], "OspitalitaStranieriFrame", "ospitalita")
 
-    def _module_card(self, parent, config, frame_name):
+        tk.Label(
+            shell,
+            textvariable=self.dashboard_status_var,
+            bg=BG,
+            fg=TEXT_MUTED,
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(8, 0))
+
+        self.refresh_dashboard()
+
+    def _module_card(self, parent, config, frame_name, dashboard_key):
         card = tk.Frame(parent, bg=SURFACE, highlightbackground=BORDER, highlightthickness=1)
         card.pack(fill="x", pady=8)
 
@@ -120,8 +172,26 @@ class MainMenuFrame(tk.Frame):
             font=("Segoe UI", 10),
         ).pack(anchor="w", pady=(8, 12))
 
-        tk.Button(
+        body = tk.Frame(inner, bg=SURFACE)
+        body.pack(fill="x")
+
+        metrics_frame = tk.Frame(body, bg=SURFACE)
+        metrics_frame.pack(side="left", fill="x", expand=True)
+
+        detail_var = tk.StringVar(value="")
+        detail_label = tk.Label(
             inner,
+            textvariable=detail_var,
+            bg=SURFACE,
+            fg=TEXT_MUTED,
+            font=("Segoe UI", 9),
+            wraplength=760,
+            justify="left",
+        )
+        detail_label.pack(anchor="w", pady=(10, 0))
+
+        tk.Button(
+            body,
             text="Apri Modulo",
             bg=config["accent"],
             fg="white",
@@ -132,7 +202,147 @@ class MainMenuFrame(tk.Frame):
             padx=18,
             pady=10,
             command=lambda: self.controller.show_frame(frame_name),
+        ).pack(side="right", anchor="n", padx=(18, 0))
+
+        self.dashboard_cards[dashboard_key] = {
+            "metrics_frame": metrics_frame,
+            "detail_var": detail_var,
+        }
+        self._render_card_metrics(dashboard_key, (("Stato", "Caricamento..."),), "")
+
+    def refresh_dashboard(self):
+        if self._dashboard_loading:
+            return
+        self._dashboard_loading = True
+        self.dashboard_status_var.set("Aggiornamento dashboard in corso...")
+        for key in self.dashboard_cards:
+            self._render_card_metrics(key, (("Stato", "Caricamento..."),), "")
+
+        def worker():
+            try:
+                snapshot = collect_dashboard_snapshot()
+            except Exception as exc:
+                detail = str(exc)
+                self.after(0, lambda: self._dashboard_failed(detail))
+                return
+            self.after(0, lambda: self._apply_dashboard_snapshot(snapshot))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_dashboard_snapshot(self, snapshot):
+        self._dashboard_loading = False
+        for key, card in snapshot.cards.items():
+            detail = card.detail
+            if detail:
+                detail = f"{card.status}: {detail}"
+            else:
+                detail = card.status
+            self._render_card_metrics(key, card.metrics, detail)
+        updated_at = snapshot.updated_at.strftime("%d/%m/%Y %H:%M:%S")
+        self.dashboard_status_var.set(f"Ultimo aggiornamento dashboard: {updated_at}")
+
+    def _dashboard_failed(self, detail):
+        self._dashboard_loading = False
+        self.dashboard_status_var.set("Errore aggiornamento dashboard.")
+        for key in self.dashboard_cards:
+            self._render_card_metrics(key, (("Stato", "Errore lettura"),), detail)
+
+    def _render_card_metrics(self, key, metrics, detail):
+        card_state = self.dashboard_cards.get(key)
+        if not card_state:
+            return
+        metrics_frame = card_state["metrics_frame"]
+        for child in metrics_frame.winfo_children():
+            child.destroy()
+        for label, value in metrics:
+            row = tk.Frame(metrics_frame, bg=SURFACE)
+            row.pack(fill="x", pady=1)
+            tk.Label(
+                row,
+                text=f"{label}:",
+                bg=SURFACE,
+                fg=TEXT_MUTED,
+                font=("Segoe UI", 10),
+                width=22,
+                anchor="w",
+            ).pack(side="left")
+            tk.Label(
+                row,
+                text=str(value),
+                bg=SURFACE,
+                fg=self._metric_color(value),
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+                justify="left",
+                wraplength=520,
+            ).pack(side="left", fill="x", expand=True)
+        card_state["detail_var"].set(detail)
+
+    @staticmethod
+    def _metric_color(value):
+        text = str(value)
+        if text.startswith(DASHBOARD_ERROR) or text == "Errore lettura":
+            return "#B3261E"
+        if text.startswith(DASHBOARD_WARNING):
+            return "#9A5E0C"
+        if text.startswith(DASHBOARD_OK):
+            return "#1E7A4D"
+        return TEXT
+
+    def _show_diagnostics(self):
+        win = tk.Toplevel(self)
+        win.title("Verifica configurazione")
+        win.configure(bg=BG)
+        win.geometry("860x480")
+        win.minsize(720, 360)
+        win.transient(self.winfo_toplevel())
+
+        wrap = tk.Frame(win, bg=BG)
+        wrap.pack(fill="both", expand=True, padx=18, pady=16)
+
+        tk.Label(
+            wrap,
+            text="Verifica configurazione",
+            bg=BG,
+            fg=TEXT,
+            font=("Segoe UI", 15, "bold"),
         ).pack(anchor="w")
+
+        tree_frame = tk.Frame(wrap, bg=BG)
+        tree_frame.pack(fill="both", expand=True, pady=(12, 10))
+
+        tree = ttk.Treeview(tree_frame, columns=("status", "check", "detail"), show="headings", height=14)
+        tree.heading("status", text="Esito")
+        tree.heading("check", text="Controllo")
+        tree.heading("detail", text="Dettaglio")
+        tree.column("status", width=110, anchor="center", stretch=False)
+        tree.column("check", width=210, anchor="w", stretch=False)
+        tree.column("detail", width=500, anchor="w")
+        tree.tag_configure(OK, foreground="#1E7A4D")
+        tree.tag_configure(WARNING, foreground="#9A5E0C")
+        tree.tag_configure(ERROR, foreground="#B3261E")
+
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        for item in run_diagnostics():
+            tree.insert("", "end", values=(item.status, item.name, item.detail), tags=(item.status,))
+
+        tk.Button(
+            wrap,
+            text="Chiudi",
+            bg=ACCENT,
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground=ACCENT,
+            padx=18,
+            pady=8,
+            command=win.destroy,
+        ).pack(anchor="e")
 
 
 class DesktopApp(tk.Tk):

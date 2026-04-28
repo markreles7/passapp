@@ -3,7 +3,6 @@
 import datetime as dt
 from dataclasses import asdict, dataclass
 import json
-import logging
 import os
 import re
 import shutil
@@ -14,6 +13,11 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from app_config import load_config, resolve_path
+from core.fascicoli import add_attachment, ensure_fascicolo, generate_photo_sheet_html, open_path
+from core.logging_utils import setup_module_logger
+from core.powershell import check_office_com
+from fascicoli import FascicoloWindow, fascicolo_status_text
+from sopralluoghi import SopralluoghiWindow
 
 APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
@@ -45,16 +49,7 @@ try:
 except OSError:
     pass
 
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    try:
-        _handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-        _handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
-        logger.addHandler(_handler)
-    except OSError:
-        pass
-logger.setLevel(logging.INFO)
-logger.propagate = False
+logger = setup_module_logger(__name__, LOG_FILE)
 
 
 @dataclass
@@ -501,6 +496,21 @@ class SegnalazioniFrame(tk.Frame):
         )
         self.btn_pdf.pack(side="left", padx=(8, 0))
 
+        self.btn_sopralluoghi = tk.Button(
+            footer,
+            text="Sopralluoghi",
+            bg="#6A4C93",
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground="#563B78",
+            padx=16,
+            pady=9,
+            command=self._open_sopralluoghi,
+        )
+        self.btn_sopralluoghi.pack(side="left", padx=(8, 0))
+
         self.btn_elimina = tk.Button(
             footer,
             text="Elimina Segnalazione",
@@ -532,6 +542,53 @@ class SegnalazioniFrame(tk.Frame):
             command=self._annulla_torna_indietro,
         )
         self.btn_annulla.pack(side="left", padx=(8, 0))
+
+        fascicolo_bar = tk.Frame(parent, bg=SURFACE)
+        fascicolo_bar.pack(fill="x", padx=12, pady=(0, 12))
+        self.lbl_fascicolo = tk.Label(
+            fascicolo_bar,
+            text="Fascicolo: non creato",
+            bg=SURFACE,
+            fg=TEXT_MUTED,
+            font=("Segoe UI", 9),
+        )
+        self.lbl_fascicolo.pack(anchor="w", pady=(0, 6))
+
+        fascicolo_actions = tk.Frame(fascicolo_bar, bg=SURFACE)
+        fascicolo_actions.pack(fill="x")
+        self.btn_crea_fascicolo = self._small_action_button(fascicolo_actions, "Crea fascicolo", ACCENT, self._create_fascicolo)
+        self.btn_crea_fascicolo.pack(side="left")
+        self.btn_apri_fascicolo = self._small_action_button(fascicolo_actions, "Apri fascicolo", "#355C7D", self._open_fascicolo)
+        self.btn_apri_fascicolo.pack(side="left", padx=(6, 0))
+        self.btn_add_foto = self._small_action_button(
+            fascicolo_actions,
+            "Aggiungi foto",
+            SUCCESS,
+            lambda: self._add_fascicolo_files("foto"),
+        )
+        self.btn_add_foto.pack(side="left", padx=(6, 0))
+        self.btn_add_allegato = self._small_action_button(
+            fascicolo_actions,
+            "Aggiungi allegato",
+            "#6A4C93",
+            lambda: self._add_fascicolo_files("allegato"),
+        )
+        self.btn_add_allegato.pack(side="left", padx=(6, 0))
+        self.btn_mostra_allegati = self._small_action_button(
+            fascicolo_actions,
+            "Mostra allegati",
+            BG2,
+            self._show_fascicolo,
+            fg=TEXT_MUTED,
+        )
+        self.btn_mostra_allegati.pack(side="left", padx=(6, 0))
+        self.btn_scheda_fotografica = self._small_action_button(
+            fascicolo_actions,
+            "Genera scheda fotografica",
+            "#B33B2E",
+            self._generate_photo_sheet,
+        )
+        self.btn_scheda_fotografica.pack(side="left", padx=(6, 0))
 
     def _bind_detail_mousewheel(self, scope_widget: tk.Widget, canvas: tk.Canvas):
         def on_wheel(event):
@@ -592,6 +649,21 @@ class SegnalazioniFrame(tk.Frame):
         body = tk.Frame(box, bg=BG2)
         body.pack(fill="x", padx=12, pady=(0, 10))
         return body
+
+    def _small_action_button(self, parent, text, color, command, fg="white"):
+        return tk.Button(
+            parent,
+            text=text,
+            bg=color,
+            fg=fg,
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground=color,
+            padx=10,
+            pady=6,
+            command=command,
+        )
 
     def _compact_protocol_row(self, parent):
         row = tk.Frame(parent, bg=BG2)
@@ -804,6 +876,7 @@ class SegnalazioniFrame(tk.Frame):
 
         editable = seg.stato == "in_corso"
         self._set_form_editable(editable)
+        self._update_fascicolo_status()
 
     def _clear_detail(self):
         self.var_numero.set("")
@@ -825,6 +898,7 @@ class SegnalazioniFrame(tk.Frame):
         self.txt_verifica.configure(state="normal")
         self.txt_verifica.delete("1.0", "end")
         self._set_form_editable(False)
+        self._update_fascicolo_status()
 
     def _clear_tree_selection(self):
         for tree in (self.tree_in, self.tree_arch):
@@ -869,8 +943,18 @@ class SegnalazioniFrame(tk.Frame):
         self.btn_concludi.configure(state="normal" if editable else "disabled")
         selected = self._get_selected() is not None
         self.btn_pdf.configure(state="normal" if selected else "disabled")
+        self.btn_sopralluoghi.configure(state="normal" if selected else "disabled")
         self.btn_elimina.configure(state="normal" if selected else "disabled")
         self.btn_annulla.configure(state="normal" if selected else "disabled")
+        for button in (
+            self.btn_crea_fascicolo,
+            self.btn_apri_fascicolo,
+            self.btn_add_foto,
+            self.btn_add_allegato,
+            self.btn_mostra_allegati,
+            self.btn_scheda_fotografica,
+        ):
+            button.configure(state="normal" if selected else "disabled")
 
     def _validate_form_values(self):
         anno = self.var_anno.get().strip()
@@ -1009,6 +1093,98 @@ class SegnalazioniFrame(tk.Frame):
         self._refresh_trees()
         self._clear_selection()
 
+    def _open_sopralluoghi(self):
+        seg = self._get_selected()
+        if seg is None:
+            messagebox.showinfo("Selezione richiesta", "Seleziona una segnalazione.")
+            return
+        SopralluoghiWindow(self, seg)
+
+    def _update_fascicolo_status(self):
+        if not hasattr(self, "lbl_fascicolo"):
+            return
+        seg = self._get_selected()
+        if seg is None:
+            self.lbl_fascicolo.configure(text="Fascicolo: non creato")
+            return
+        try:
+            self.lbl_fascicolo.configure(text=fascicolo_status_text(seg.numero_progressivo))
+        except Exception:
+            logger.exception("Errore stato fascicolo segnalazione n. %s", seg.numero_progressivo)
+            self.lbl_fascicolo.configure(text="Fascicolo: errore lettura")
+
+    def _create_fascicolo(self):
+        seg = self._get_selected()
+        if seg is None:
+            messagebox.showinfo("Selezione richiesta", "Seleziona una segnalazione.")
+            return
+        try:
+            folder = ensure_fascicolo(seg)
+        except Exception as exc:
+            logger.exception("Errore creazione fascicolo segnalazione n. %s", seg.numero_progressivo)
+            messagebox.showerror("Fascicolo non creato", f"Impossibile creare il fascicolo.\n\n{exc}")
+            return
+        self._update_fascicolo_status()
+        messagebox.showinfo("Fascicolo creato", f"Fascicolo disponibile in:\n{folder}")
+
+    def _open_fascicolo(self):
+        seg = self._get_selected()
+        if seg is None:
+            messagebox.showinfo("Selezione richiesta", "Seleziona una segnalazione.")
+            return
+        try:
+            open_path(ensure_fascicolo(seg))
+        except Exception as exc:
+            logger.exception("Errore apertura fascicolo segnalazione n. %s", seg.numero_progressivo)
+            messagebox.showerror("Apertura non riuscita", f"Impossibile aprire il fascicolo.\n\n{exc}")
+            return
+        self._update_fascicolo_status()
+
+    def _add_fascicolo_files(self, tipo: str):
+        seg = self._get_selected()
+        if seg is None:
+            messagebox.showinfo("Selezione richiesta", "Seleziona una segnalazione.")
+            return
+        if tipo == "foto":
+            filetypes = [("Immagini", "*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff *.webp"), ("Tutti i file", "*.*")]
+            title = "Aggiungi foto al fascicolo"
+        else:
+            filetypes = [("Tutti i file", "*.*")]
+            title = "Aggiungi allegato al fascicolo"
+        files = filedialog.askopenfilenames(parent=self, title=title, filetypes=filetypes)
+        if not files:
+            return
+        added = 0
+        for filename in files:
+            try:
+                add_attachment(seg, Path(filename), tipo, origine="segnalazione")
+                added += 1
+            except Exception:
+                logger.exception("Errore aggiunta file al fascicolo: %s", filename)
+        self._update_fascicolo_status()
+        messagebox.showinfo("Fascicolo aggiornato", f"File aggiunti: {added}")
+
+    def _show_fascicolo(self):
+        seg = self._get_selected()
+        if seg is None:
+            messagebox.showinfo("Selezione richiesta", "Seleziona una segnalazione.")
+            return
+        FascicoloWindow(self, seg)
+
+    def _generate_photo_sheet(self):
+        seg = self._get_selected()
+        if seg is None:
+            messagebox.showinfo("Selezione richiesta", "Seleziona una segnalazione.")
+            return
+        try:
+            output = generate_photo_sheet_html(seg)
+            open_path(output)
+        except Exception as exc:
+            logger.exception("Errore scheda fotografica segnalazione n. %s", seg.numero_progressivo)
+            messagebox.showerror("Scheda non creata", f"Impossibile generare la scheda fotografica.\n\n{exc}")
+            return
+        self._update_fascicolo_status()
+
     @staticmethod
     def _safe_filename(value: str) -> str:
         safe = re.sub(r'[\\/:*?"<>|]+', "_", value.strip())
@@ -1125,6 +1301,12 @@ class SegnalazioniFrame(tk.Frame):
                 f"Impossibile creare il PDF.\n\nDettagli:\n{exc}",
             )
             return
+
+        try:
+            add_attachment(seg, out_path, "documento", origine="segnalazione")
+            self._update_fascicolo_status()
+        except Exception:
+            logger.exception("Errore registrazione PDF nel fascicolo segnalazione n. %s", seg.numero_progressivo)
 
         messagebox.showinfo("PDF creato", f"Segnalazione esportata in:\n{out_path}")
 
@@ -1355,28 +1537,7 @@ finally {
     def _is_word_available(self) -> bool:
         if self._word_available is not None:
             return self._word_available
-        if os.name != "nt":
-            self._word_available = False
-            return self._word_available
-        try:
-            result = subprocess.run(
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-Command",
-                    "$word=$null; try { $word = New-Object -ComObject Word.Application; $word.Quit(); exit 0 } catch { exit 1 }",
-                ],
-                capture_output=True,
-                timeout=20,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-            self._word_available = result.returncode == 0
-        except OSError:
-            self._word_available = False
-        except subprocess.SubprocessError:
-            self._word_available = False
+        self._word_available = check_office_com("Word.Application")[0]
         return self._word_available
 
     def _get_selected(self):

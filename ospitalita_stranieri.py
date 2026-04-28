@@ -8,9 +8,7 @@ import os
 import re
 import shutil
 import threading
-import unicodedata
 import queue
-import logging
 import subprocess
 import tempfile
 from pathlib import Path
@@ -18,6 +16,12 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from app_config import load_config, resolve_path
+from core.backups import create_excel_backup
+from core.dates import parse_date as _common_parse_date
+from core.file_state import FileSnapshot, file_matches_snapshot
+from core.logging_utils import setup_module_logger
+from core.text_utils import display_text, normalize_basic
+from core.workcopies import create_working_copy
 
 try:
     import xlrd  # type: ignore
@@ -51,21 +55,7 @@ WARNING = "#AD6A0F"
 DANGER = "#B43A30"
 
 LOG_FILE = resolve_path(PATHS["log_file"])
-try:
-    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-except OSError:
-    pass
-
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    try:
-        _handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-        _handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
-        logger.addHandler(_handler)
-    except OSError:
-        pass
-logger.setLevel(logging.INFO)
-logger.propagate = False
+logger = setup_module_logger(__name__, LOG_FILE)
 
 FIELD_ALIASES = {
     "protocollo": ["protocollo", "n protocollo", "num protocollo", "prot"],
@@ -99,40 +89,15 @@ FIELD_ALIASES = {
 
 
 def _norm(value) -> str:
-    text = "" if value is None else str(value)
-    text = unicodedata.normalize("NFKD", text)
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    return text.strip().lower()
+    return normalize_basic(value)
 
 
 def _text(value) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, dt.datetime):
-        return value.strftime("%d/%m/%Y")
-    if isinstance(value, dt.date):
-        return value.strftime("%d/%m/%Y")
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value).strip()
+    return display_text(value)
 
 
 def _parse_sort_date(value):
-    if value is None:
-        return None
-    if isinstance(value, dt.datetime):
-        return value.date()
-    if isinstance(value, dt.date):
-        return value
-    text = str(value).strip()
-    if not text:
-        return None
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y"):
-        try:
-            return dt.datetime.strptime(text, fmt).date()
-        except ValueError:
-            pass
-    return None
+    return _common_parse_date(value)
 
 
 def _protocol_sort_key(value):
@@ -456,6 +421,7 @@ class OspitalitaStranieriFrame(tk.Frame):
         self._source_files: list[str] = []
         self._primary_source_file: str | None = None
         self._working_copy_file: Path | None = None
+        self._source_file_snapshot: FileSnapshot | None = None
         self._pending_new_records: list[dict] = []
         self.year_var = tk.StringVar(value="Tutti")
         self._last_year_value = "Tutti"
@@ -1018,16 +984,15 @@ class OspitalitaStranieriFrame(tk.Frame):
 
     def _prepare_working_copy(self):
         self._working_copy_file = None
+        self._source_file_snapshot = None
         if not self._primary_source_file:
             return
         try:
-            WORK_COPY_DIR.mkdir(parents=True, exist_ok=True)
-            suffix = Path(self._primary_source_file).suffix or ".xlsx"
-            fd, temp_name = tempfile.mkstemp(prefix="ospitalita_", suffix=suffix, dir=str(WORK_COPY_DIR))
-            os.close(fd)
-            temp_path = Path(temp_name)
-            shutil.copy2(self._primary_source_file, temp_path)
-            self._working_copy_file = temp_path
+            result = create_working_copy(self._primary_source_file, WORK_COPY_DIR, prefix="ospitalita_")
+            if result.removed_old_copies:
+                logger.info("Rimosse %s copie di lavoro vecchie ospitalita", result.removed_old_copies)
+            self._working_copy_file = result.path
+            self._source_file_snapshot = result.snapshot
         except OSError:
             logger.exception("Impossibile creare copia di lavoro ospitalita")
             messagebox.showwarning(
@@ -1576,8 +1541,17 @@ finally {
             )
             return False
 
+        if not file_matches_snapshot(self._source_file_snapshot):
+            messagebox.showwarning(
+                "File originale modificato",
+                "Il file originale è stato modificato dopo l’apertura della copia di lavoro. "
+                "Ricaricare i dati prima di salvare.",
+            )
+            return False
+
         try:
             self._append_pending_with_excel_com(self._working_copy_file)
+            create_excel_backup(self._primary_source_file, "ospitalita")
             shutil.copy2(self._working_copy_file, self._primary_source_file)
         except Exception as exc:
             logger.exception("Errore salvataggio modifiche ospitalita")

@@ -1,10 +1,15 @@
 __pycache__/
+*.pyc
 *.py[cod]
+.venv/
 *.log
 *.tmp
 *.bak
 
+data/*.log
 data/passapp.log
+data/workcopies/
+data/backups/
 documenti/segnalazioni_pdf/*.pdf
 documenti/export_temp/
 documenti/tmp/

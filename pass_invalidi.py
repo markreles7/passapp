@@ -13,13 +13,17 @@ import shutil
 import threading
 import datetime
 import queue
-import logging
 import subprocess
 import tempfile
-import unicodedata
 from pathlib import Path
 
 from app_config import load_config, resolve_path
+from core.backups import create_excel_backup
+from core.dates import format_date, giorni_rimanenti, parse_date
+from core.file_state import FileSnapshot, file_matches_snapshot
+from core.logging_utils import setup_module_logger
+from core.text_utils import normalize_for_match
+from core.workcopies import create_working_copy
 
 try:
     import openpyxl
@@ -34,21 +38,7 @@ THEME = UI_CONFIG["theme"]
 PASS_INVALIDI_UI = UI_CONFIG["modules"]["pass_invalidi"]
 
 LOG_FILE = resolve_path(PATHS["log_file"])
-try:
-    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-except OSError:
-    pass
-
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    try:
-        _handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-        _handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
-        logger.addHandler(_handler)
-    except OSError:
-        pass
-logger.setLevel(logging.INFO)
-logger.propagate = False
+logger = setup_module_logger(__name__, LOG_FILE)
 
 # --- CONFIGURAZIONE ---
 CARTELLA_RETE = PATHS["pass_invalidi_network_folder"]
@@ -79,27 +69,6 @@ TEXT_DIM = THEME["text_dim"]
 
 # --- PARSING ---
 
-def parse_date(val):
-    """Converte vari formati di data in datetime.date o None."""
-    if val is None:
-        return None
-    if isinstance(val, (datetime.datetime,)):
-        return val.date()
-    if isinstance(val, datetime.date):
-        return val
-    if isinstance(val, str):
-        val = val.strip()
-        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y"):
-            try:
-                return datetime.datetime.strptime(val, fmt).date()
-            except ValueError:
-                pass
-    return None
-
-def format_date(val):
-    d = parse_date(val)
-    return d.strftime("%d/%m/%Y") if d else (str(val) if val else "-")
-
 def get_status(val):
     """Ritorna 'expired', 'soon', 'valid' o None."""
     d = parse_date(val)
@@ -112,12 +81,6 @@ def get_status(val):
     if diff <= GIORNI_SCADENZA:
         return "soon"
     return "valid"
-
-def giorni_rimanenti(val):
-    d = parse_date(val)
-    if d is None:
-        return None
-    return (d - datetime.date.today()).days
 
 
 def carica_file(path):
@@ -252,6 +215,7 @@ class PassInvalidiFrame(tk.Frame):
         self._source_files: list[str] = []
         self._primary_source_file: str | None = None
         self._working_copy_file: Path | None = None
+        self._source_file_snapshot: FileSnapshot | None = None
         self._pending_new_records: list[dict] = []
         self.year_var = tk.StringVar(value="Tutti")
         self._last_year_value = "Tutti"
@@ -779,9 +743,12 @@ class PassInvalidiFrame(tk.Frame):
             if parts and not all(p in nome_lower for p in parts):
                 continue
             st = get_status(r["scadenza"])
-            if mode == "expired" and st != "expired": continue
-            if mode == "soon"    and st != "soon":    continue
-            if mode == "valid"   and st != "valid":   continue
+            if mode == "expired" and st != "expired":
+                continue
+            if mode == "soon" and st != "soon":
+                continue
+            if mode == "valid" and st != "valid":
+                continue
             risultati.append(r)
 
         self.filtered = risultati
@@ -796,7 +763,6 @@ class PassInvalidiFrame(tk.Frame):
 
     def _popola_tabella(self, records):
         self.tree.delete(*self.tree.get_children())
-        oggi = datetime.date.today()
 
         for i, r in enumerate(records):
             st = get_status(r["scadenza"])
@@ -900,16 +866,15 @@ class PassInvalidiFrame(tk.Frame):
 
     def _prepare_working_copy(self):
         self._working_copy_file = None
+        self._source_file_snapshot = None
         if not self._primary_source_file:
             return
         try:
-            WORK_COPY_DIR.mkdir(parents=True, exist_ok=True)
-            suffix = Path(self._primary_source_file).suffix or ".xlsx"
-            fd, temp_name = tempfile.mkstemp(prefix="invalidi_", suffix=suffix, dir=str(WORK_COPY_DIR))
-            os.close(fd)
-            temp_path = Path(temp_name)
-            shutil.copy2(self._primary_source_file, temp_path)
-            self._working_copy_file = temp_path
+            result = create_working_copy(self._primary_source_file, WORK_COPY_DIR, prefix="invalidi_")
+            if result.removed_old_copies:
+                logger.info("Rimosse %s copie di lavoro vecchie pass invalidi", result.removed_old_copies)
+            self._working_copy_file = result.path
+            self._source_file_snapshot = result.snapshot
         except OSError:
             logger.exception("Impossibile creare copia di lavoro pass invalidi")
             messagebox.showwarning(
@@ -944,135 +909,6 @@ class PassInvalidiFrame(tk.Frame):
             except (TypeError, ValueError):
                 continue
         return max_num + 1
-
-    def nuovo_nominativo(self):
-        if not self._working_copy_file:
-            messagebox.showwarning("Operazione non disponibile", "Nessuna copia di lavoro disponibile.")
-            return
-
-        win = tk.Toplevel(self)
-        win.title("Nuovo nominativo invalidi")
-        win.configure(bg=BG)
-        win.resizable(False, False)
-        win.grab_set()
-
-        body = tk.Frame(win, bg=SURFACE, highlightbackground=BORDER, highlightthickness=1)
-        body.pack(fill="both", expand=True, padx=14, pady=14)
-
-        vars_map = {
-            "nome": tk.StringVar(),
-            "indirizzo": tk.StringVar(),
-            "rilascio": tk.StringVar(),
-            "scadenza": tk.StringVar(),
-            "note": tk.StringVar(),
-        }
-        fields = [
-            ("Cognome e Nome", "nome"),
-            ("Indirizzo", "indirizzo"),
-            ("Rilascio (GG/MM/AAAA)", "rilascio"),
-            ("Scadenza (GG/MM/AAAA)", "scadenza"),
-            ("Note", "note"),
-        ]
-        for label, key in fields:
-            row = tk.Frame(body, bg=SURFACE)
-            row.pack(fill="x", padx=12, pady=6)
-            tk.Label(
-                row,
-                text=label,
-                bg=SURFACE,
-                fg=TEXT_MUTED,
-                font=("Segoe UI", 9, "bold"),
-                width=24,
-                anchor="w",
-            ).pack(side="left")
-            tk.Entry(
-                row,
-                textvariable=vars_map[key],
-                font=("Segoe UI", 10),
-                bg="white",
-                fg=TEXT,
-                relief="solid",
-                bd=1,
-            ).pack(side="left", fill="x", expand=True, ipady=4)
-
-        footer = tk.Frame(body, bg=SURFACE)
-        footer.pack(fill="x", padx=12, pady=(8, 12))
-
-        def conferma():
-            nome = vars_map["nome"].get().strip().upper()
-            indirizzo = vars_map["indirizzo"].get().strip()
-            rilascio = vars_map["rilascio"].get().strip()
-            scadenza = vars_map["scadenza"].get().strip()
-            note = vars_map["note"].get().strip()
-
-            if not nome:
-                messagebox.showwarning("Dati incompleti", "Inserisci Cognome e Nome.", parent=win)
-                return
-            if not indirizzo:
-                messagebox.showwarning("Dati incompleti", "Inserisci l'indirizzo.", parent=win)
-                return
-            if parse_date(rilascio) is None:
-                messagebox.showwarning("Data non valida", "Data rilascio non valida. Usa GG/MM/AAAA.", parent=win)
-                return
-            if parse_date(scadenza) is None:
-                messagebox.showwarning("Data non valida", "Data scadenza non valida. Usa GG/MM/AAAA.", parent=win)
-                return
-
-            if not messagebox.askyesno(
-                "Conferma inserimento",
-                "Vuoi salvare questo inserimento nella copia di lavoro?",
-                parent=win,
-            ):
-                return
-
-            record = {
-                "numero": self._next_numero(),
-                "nome": nome,
-                "indirizzo": indirizzo,
-                "rilascio": rilascio,
-                "scadenza": scadenza,
-                "note": note,
-                "source": os.path.basename(self._primary_source_file or ""),
-                "_pending": True,
-            }
-            self.all_records.append(record)
-            self._pending_new_records.append(record)
-            self.btn_save_changes.config(state="normal")
-            self.applica_filtro()
-            win.destroy()
-            messagebox.showinfo(
-                "Inserimento registrato",
-                "Nominativo aggiunto nella copia di lavoro.\nUsa 'SALVA MODIFICHE' per aggiornare il file Excel.",
-            )
-
-        tk.Button(
-            footer,
-            text="Salva inserimento",
-            bg=ACCENT,
-            fg="white",
-            font=("Segoe UI", 10, "bold"),
-            relief="flat",
-            cursor="hand2",
-            activebackground=ACCENT_DARK,
-            padx=14,
-            pady=8,
-            command=conferma,
-        ).pack(side="left")
-        tk.Button(
-            footer,
-            text="Annulla",
-            bg=BG2,
-            fg=TEXT_MUTED,
-            font=("Segoe UI", 10, "bold"),
-            relief="flat",
-            cursor="hand2",
-            activebackground=BORDER,
-            highlightbackground=BORDER,
-            highlightthickness=1,
-            padx=14,
-            pady=8,
-            command=win.destroy,
-        ).pack(side="left", padx=(8, 0))
 
     def _append_pending_to_xlsx(self, workbook_path: Path):
         wb = openpyxl.load_workbook(workbook_path)
@@ -1175,45 +1011,9 @@ finally {
                 details = (result.stderr or result.stdout or "Errore sconosciuto").strip()
                 raise RuntimeError(details)
 
-    def salva_modifiche(self, trigger_reload: bool = True) -> bool:
-        if not self._pending_new_records:
-            messagebox.showinfo("Nessuna modifica", "Non ci sono modifiche da salvare.")
-            return False
-        if not self._working_copy_file or not self._primary_source_file:
-            messagebox.showwarning("Salvataggio non disponibile", "Copia di lavoro non disponibile.")
-            return False
-
-        suffix = self._working_copy_file.suffix.lower()
-        if suffix not in (".xlsx", ".xls"):
-            messagebox.showwarning(
-                "Formato non supportato",
-                "Il salvataggio modifiche e supportato per file .xls/.xlsx nel modulo Invalidi.",
-            )
-            return False
-
-        try:
-            if suffix == ".xlsx":
-                self._append_pending_to_xlsx(self._working_copy_file)
-            else:
-                self._append_pending_with_excel_com(self._working_copy_file)
-            shutil.copy2(self._working_copy_file, self._primary_source_file)
-        except Exception as exc:
-            logger.exception("Errore salvataggio modifiche pass invalidi")
-            messagebox.showerror("Salvataggio non riuscito", f"Impossibile salvare le modifiche.\n\nDettagli:\n{exc}")
-            return False
-
-        self._pending_new_records = []
-        self.btn_save_changes.config(state="disabled")
-        if trigger_reload:
-            self.carica_dati(force=True)
-        messagebox.showinfo("Salvataggio completato", "Le modifiche sono state salvate sul file Excel.")
-        return True
-
     @staticmethod
     def _normalize_text_for_match(value: str) -> str:
-        text = unicodedata.normalize("NFKD", value or "")
-        text = "".join(ch for ch in text if not unicodedata.combining(ch))
-        return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+        return normalize_for_match(value)
 
     def _current_source_name(self) -> str:
         if not self._primary_source_file:
@@ -1628,6 +1428,8 @@ finally {
                     next_append_row += 1
                 ws.cell(row=target_row, column=1, value=numero)
                 row_by_numero[numero] = target_row
+            elif target_row in empty_rows:
+                empty_rows.remove(target_row)
 
             generalita = self._compose_generalita_indirizzo(
                 rec.get("cognome", ""),
@@ -1719,6 +1521,8 @@ finally {
                     last_numbered_row += 1
                     target_row = last_numbered_row
                     set_numero = True
+            elif target_row in empty_rows:
+                empty_rows.remove(target_row)
             item["target_row"] = target_row
             item["set_numero"] = set_numero
             row_by_numero[numero] = target_row
@@ -1854,8 +1658,20 @@ finally {
             )
             return False
 
+        if not file_matches_snapshot(self._source_file_snapshot):
+            messagebox.showwarning(
+                "File originale modificato",
+                "Il file originale è stato modificato dopo l’apertura della copia di lavoro. "
+                "Ricaricare i dati prima di salvare.",
+            )
+            return False
+
         try:
-            self._write_pending_with_excel_com(self._working_copy_file)
+            if suffix == ".xlsx":
+                self._write_pending_to_xlsx(self._working_copy_file)
+            else:
+                self._write_pending_with_excel_com(self._working_copy_file)
+            create_excel_backup(self._primary_source_file, "pass_invalidi")
             shutil.copy2(self._working_copy_file, self._primary_source_file)
         except Exception as exc:
             logger.exception("Errore salvataggio modifiche pass invalidi")
