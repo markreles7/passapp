@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from app_config import load_config, resolve_path
+from core.audit import log_audit_event
 from core.fascicoli import (
     add_attachment,
     ensure_fascicolo,
@@ -185,8 +186,24 @@ class FascicoloWindow(tk.Toplevel):
             folder = ensure_fascicolo(self.segnalazione)
         except Exception as exc:
             logger.exception("Errore creazione fascicolo segnalazione n. %s", self.segnalazione.numero_progressivo)
+            log_audit_event(
+                "segnalazioni",
+                "create_fascicolo",
+                "fascicolo",
+                str(self.segnalazione.numero_progressivo),
+                "Creazione fascicolo non riuscita",
+                result="error",
+                error=str(exc),
+            )
             messagebox.showerror("Fascicolo non creato", f"Impossibile creare il fascicolo.\n\n{exc}", parent=self)
             return
+        log_audit_event(
+            "segnalazioni",
+            "create_fascicolo",
+            "fascicolo",
+            str(self.segnalazione.numero_progressivo),
+            "Creato/aperto fascicolo digitale",
+        )
         self._refresh()
         messagebox.showinfo("Fascicolo creato", f"Fascicolo disponibile in:\n{folder}", parent=self)
 
@@ -217,7 +234,24 @@ class FascicoloWindow(tk.Toplevel):
                 added += 1
             except Exception:
                 logger.exception("Errore aggiunta allegato al fascicolo: %s", filename)
+                log_audit_event(
+                    "segnalazioni",
+                    "add_attachment",
+                    "fascicolo",
+                    str(self.segnalazione.numero_progressivo),
+                    "Aggiunta allegato/foto non riuscita",
+                    result="error",
+                )
         self._refresh()
+        if added:
+            log_audit_event(
+                "segnalazioni",
+                "add_attachment",
+                "fascicolo",
+                str(self.segnalazione.numero_progressivo),
+                "Aggiunti allegati/foto al fascicolo",
+                extra={"count": added, "tipo": tipo},
+            )
         messagebox.showinfo("Allegati aggiornati", f"File aggiunti: {added}", parent=self)
 
     def _open_selected(self):

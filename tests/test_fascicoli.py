@@ -9,6 +9,7 @@ from core.fascicoli import (
     ensure_fascicolo,
     generate_photo_sheet_html,
     list_attachments,
+    load_registry,
     safe_windows_name,
 )
 
@@ -38,6 +39,17 @@ class TestFascicoli(unittest.TestCase):
             for subdir in ("foto", "allegati", "sopralluoghi", "documenti", "export"):
                 self.assertTrue((folder / subdir).is_dir())
             self.assertTrue(build_fascicolo_folder_name(SegnalazioneStub()).startswith("SEG-2026-0001"))
+
+    def test_malformed_registry_returns_empty_and_creates_backup(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            registry = Path(tmp_dir) / "fascicoli.json"
+            registry.write_text("{json non valido", encoding="utf-8")
+
+            payload = load_registry(registry)
+            backups = list((Path(tmp_dir) / "backups" / "fascicoli").glob("fascicoli_malformed_*.json"))
+
+        self.assertEqual(payload, {"fascicoli": [], "allegati": []})
+        self.assertEqual(len(backups), 1)
 
     def test_add_attachment_copies_once_and_records_relative_path(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

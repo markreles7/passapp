@@ -16,6 +16,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from app_config import load_config, resolve_path
+from core.audit import log_audit_event
 from core.backups import create_excel_backup
 from core.dates import parse_date as _common_parse_date
 from core.file_state import FileSnapshot, file_matches_snapshot
@@ -1377,6 +1378,16 @@ class OspitalitaStranieriFrame(tk.Frame):
                 "indirizzo_ospitalita": indirizzo_ospitalita,
                 "original_snapshot": original_snapshot,
             })
+            log_audit_event(
+                "ospitalita",
+                "update" if is_edit else "create",
+                "ospitalita",
+                str(progressivo),
+                "Modifica ospitalita registrata nella copia di lavoro"
+                if is_edit
+                else "Nuovo inserimento ospitalita registrato nella copia di lavoro",
+                extra={"source": source_name},
+            )
             self.btn_save_changes.config(state="normal")
             self.applica_filtro()
             win.destroy()
@@ -1552,12 +1563,23 @@ finally {
         try:
             self._append_pending_with_excel_com(self._working_copy_file)
             create_excel_backup(self._primary_source_file, "ospitalita")
+            log_audit_event("ospitalita", "backup", "excel", None, "Backup file originale Ospitalita creato")
             shutil.copy2(self._working_copy_file, self._primary_source_file)
         except Exception as exc:
             logger.exception("Errore salvataggio modifiche ospitalita")
+            log_audit_event(
+                "ospitalita",
+                "save",
+                "excel",
+                None,
+                "Salvataggio modifiche Ospitalita non riuscito",
+                result="error",
+                error=str(exc),
+            )
             messagebox.showerror("Salvataggio non riuscito", f"Impossibile salvare le modifiche.\n\nDettagli:\n{exc}")
             return False
 
+        saved_count = len(self._pending_new_records)
         for rec in self.all_records:
             rec.pop("_pending", None)
         self._pending_new_records = []
@@ -1567,4 +1589,12 @@ finally {
         else:
             self.applica_filtro()
         messagebox.showinfo("Salvataggio completato", "Le modifiche sono state salvate sul file Excel.")
+        log_audit_event(
+            "ospitalita",
+            "save",
+            "excel",
+            None,
+            "Salvate modifiche Ospitalita sul file originale",
+            extra={"count": saved_count},
+        )
         return True

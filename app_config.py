@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-BASE_DIR = Path(__file__).resolve().parent
+SOURCE_DIR = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+    RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
+else:
+    BASE_DIR = SOURCE_DIR
+    RESOURCE_DIR = SOURCE_DIR
 CONFIG_PATH = BASE_DIR / "data" / "config.json"
 
 logger = logging.getLogger(__name__)
@@ -18,6 +25,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "documents_dir": "documenti",
         "segnalazioni_pdf_dir": "documenti/segnalazioni_pdf",
         "fascicoli_segnalazioni_dir": "documenti/fascicoli_segnalazioni",
+        "report_mensili_dir": "documenti/report_mensili",
         "logo_path": "assets/logo.jpg",
         "pass_invalidi_network_folder": r"R:\Polizia_locale\INVALIDI",
         "pass_invalidi_pattern": "REGISTRO INVALIDI COMUNE*.xlsx",
@@ -133,4 +141,6 @@ def resolve_path(value: str | Path) -> Path:
     path = Path(value)
     if path.is_absolute():
         return path
+    if path.parts and path.parts[0] == "assets":
+        return RESOURCE_DIR / path
     return BASE_DIR / path

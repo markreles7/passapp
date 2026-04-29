@@ -3,13 +3,17 @@ import tkinter as tk
 from tkinter import ttk
 
 from app_config import load_config
+from audit_viewer import AuditViewerWindow
+from core.audit import log_audit_event
 from core.dashboard_service import ERROR as DASHBOARD_ERROR
 from core.dashboard_service import OK as DASHBOARD_OK
 from core.dashboard_service import WARNING as DASHBOARD_WARNING
 from core.dashboard_service import collect_dashboard_snapshot
 from core.diagnostics import ERROR, OK, WARNING, run_diagnostics
+from contatti_utili import ContattiUtiliWindow
 from ospitalita_stranieri import OspitalitaStranieriFrame
 from pass_invalidi import PassInvalidiFrame
+from report_mensile import ReportMensileWindow
 from segnalazioni import SegnalazioniFrame
 
 APP_CONFIG = load_config()
@@ -23,6 +27,7 @@ SURFACE = THEME["surface"]
 BORDER = THEME["border"]
 ACCENT = THEME["accent"]
 ACCENT_DARK = THEME["accent_dark"]
+SUCCESS = THEME["success"]
 TEXT = THEME["text"]
 TEXT_MUTED = THEME["text_muted"]
 
@@ -107,6 +112,34 @@ class MainMenuFrame(tk.Frame):
 
         tk.Button(
             actions,
+            text="Report mensile",
+            bg=SUCCESS,
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground=ACCENT_DARK,
+            padx=14,
+            pady=9,
+            command=self._show_monthly_report,
+        ).pack(side="left", padx=(10, 0))
+
+        tk.Button(
+            actions,
+            text="Contatti utili",
+            bg=BG,
+            fg=TEXT,
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground=BORDER,
+            padx=14,
+            pady=9,
+            command=self._show_contacts,
+        ).pack(side="left", padx=(10, 0))
+
+        tk.Button(
+            actions,
             text="Verifica configurazione",
             bg=BG,
             fg=TEXT,
@@ -117,6 +150,20 @@ class MainMenuFrame(tk.Frame):
             padx=14,
             pady=9,
             command=self._show_diagnostics,
+        ).pack(side="left", padx=(10, 0))
+
+        tk.Button(
+            actions,
+            text="Storico modifiche",
+            bg=BG,
+            fg=TEXT,
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground=BORDER,
+            padx=14,
+            pady=9,
+            command=self._show_audit_viewer,
         ).pack(side="left", padx=(10, 0))
 
         cards = tk.Frame(shell, bg=BG)
@@ -290,6 +337,7 @@ class MainMenuFrame(tk.Frame):
         return TEXT
 
     def _show_diagnostics(self):
+        log_audit_event("sistema", "diagnostics", "system", None, "Diagnostica configurazione eseguita")
         win = tk.Toplevel(self)
         win.title("Verifica configurazione")
         win.configure(bg=BG)
@@ -343,6 +391,15 @@ class MainMenuFrame(tk.Frame):
             pady=8,
             command=win.destroy,
         ).pack(anchor="e")
+
+    def _show_monthly_report(self):
+        ReportMensileWindow(self)
+
+    def _show_audit_viewer(self):
+        AuditViewerWindow(self)
+
+    def _show_contacts(self):
+        ContattiUtiliWindow(self)
 
 
 class DesktopApp(tk.Tk):

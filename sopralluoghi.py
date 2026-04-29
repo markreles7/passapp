@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from app_config import load_config, resolve_path
+from core.audit import log_audit_event
 from core.fascicoli import add_attachment
 from core.logging_utils import setup_module_logger
 from core.powershell import check_office_com
@@ -372,12 +373,40 @@ class SopralluoghiWindow(tk.Toplevel):
         if not valid:
             messagebox.showwarning("Dati non validi", reason, parent=self)
             return
+        action = "update" if existing else "create"
+        old_status = existing.stato if existing else ""
         try:
             upsert_sopralluogo(item)
         except Exception as exc:
             logger.exception("Errore salvataggio sopralluogo n. %s", item.id_sopralluogo)
+            log_audit_event(
+                "sopralluoghi",
+                action,
+                "sopralluogo",
+                str(item.id_sopralluogo),
+                "Salvataggio sopralluogo non riuscito",
+                result="error",
+                error=str(exc),
+            )
             messagebox.showerror("Salvataggio non riuscito", f"Impossibile salvare il sopralluogo.\n\n{exc}", parent=self)
             return
+        log_audit_event(
+            "sopralluoghi",
+            action,
+            "sopralluogo",
+            str(item.id_sopralluogo),
+            "Creato sopralluogo" if action == "create" else "Modificato sopralluogo",
+            extra={"segnalazione_id": item.segnalazione_id, "stato": item.stato},
+        )
+        if old_status and old_status != item.stato:
+            log_audit_event(
+                "sopralluoghi",
+                "status_change",
+                "sopralluogo",
+                str(item.id_sopralluogo),
+                "Cambio stato sopralluogo",
+                extra={"from": old_status, "to": item.stato},
+            )
         self._load_items()
         self._editing_id = item.id_sopralluogo
         self.tree.selection_set(str(item.id_sopralluogo))
@@ -403,8 +432,18 @@ class SopralluoghiWindow(tk.Toplevel):
             delete_sopralluogo(item.id_sopralluogo)
         except Exception as exc:
             logger.exception("Errore eliminazione sopralluogo n. %s", item.id_sopralluogo)
+            log_audit_event(
+                "sopralluoghi",
+                "delete",
+                "sopralluogo",
+                str(item.id_sopralluogo),
+                "Eliminazione sopralluogo non riuscita",
+                result="error",
+                error=str(exc),
+            )
             messagebox.showerror("Eliminazione non riuscita", f"Impossibile eliminare il sopralluogo.\n\n{exc}", parent=self)
             return
+        log_audit_event("sopralluoghi", "delete", "sopralluogo", str(item.id_sopralluogo), "Eliminato sopralluogo")
         self._load_items()
         self._start_new()
 
@@ -435,6 +474,14 @@ class SopralluoghiWindow(tk.Toplevel):
                 added += 1
             except Exception:
                 logger.exception("Errore aggiunta allegato sopralluogo: %s", filename)
+                log_audit_event(
+                    "sopralluoghi",
+                    "add_attachment",
+                    "sopralluogo",
+                    str(item.id_sopralluogo),
+                    "Aggiunta allegato/foto sopralluogo non riuscita",
+                    result="error",
+                )
         if added:
             item.presenza_foto_allegati = True
             try:
@@ -442,6 +489,14 @@ class SopralluoghiWindow(tk.Toplevel):
             except Exception:
                 logger.exception("Errore aggiornamento flag allegati sopralluogo n. %s", item.id_sopralluogo)
             self._load_items()
+            log_audit_event(
+                "sopralluoghi",
+                "add_attachment",
+                "sopralluogo",
+                str(item.id_sopralluogo),
+                "Aggiunti allegati/foto al sopralluogo",
+                extra={"count": added, "tipo": tipo},
+            )
         messagebox.showinfo("Fascicolo aggiornato", f"File aggiunti: {added}", parent=self)
 
     def _show_fascicolo(self):
@@ -479,6 +534,15 @@ class SopralluoghiWindow(tk.Toplevel):
             self._render_pdf(item, Path(save_path))
         except Exception as exc:
             logger.exception("Errore generazione scheda sopralluogo n. %s", item.id_sopralluogo)
+            log_audit_event(
+                "sopralluoghi",
+                "export_pdf",
+                "sopralluogo",
+                str(item.id_sopralluogo),
+                "Generazione scheda sopralluogo non riuscita",
+                result="error",
+                error=str(exc),
+            )
             messagebox.showerror("Generazione non riuscita", f"Impossibile creare il PDF.\n\n{exc}", parent=self)
             return
         try:
@@ -494,6 +558,13 @@ class SopralluoghiWindow(tk.Toplevel):
             self._load_items()
         except Exception:
             logger.exception("Errore registrazione scheda sopralluogo n. %s nel fascicolo", item.id_sopralluogo)
+        log_audit_event(
+            "sopralluoghi",
+            "export_pdf",
+            "sopralluogo",
+            str(item.id_sopralluogo),
+            "Generata scheda sopralluogo",
+        )
         messagebox.showinfo("PDF creato", f"Scheda sopralluogo esportata in:\n{save_path}", parent=self)
 
     def _render_pdf(self, item: Sopralluogo, output_pdf: Path):

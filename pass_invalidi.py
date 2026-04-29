@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 
 from app_config import load_config, resolve_path
+from core.audit import log_audit_event
 from core.backups import create_excel_backup
 from core.dates import format_date, giorni_rimanenti, parse_date
 from core.file_state import FileSnapshot, file_matches_snapshot
@@ -895,12 +896,6 @@ class PassInvalidiFrame(tk.Frame):
         self._discard_pending_changes()
         return True
 
-    def _discard_pending_changes(self):
-        self._pending_new_records = []
-        self.all_records = [rec for rec in self.all_records if not rec.get("_pending")]
-        self.btn_save_changes.config(state="disabled")
-        self.applica_filtro()
-
     def _next_numero(self) -> int:
         max_num = 0
         for rec in self.all_records:
@@ -1346,6 +1341,16 @@ finally {
                     "original_snapshot": original_snapshot,
                 }
             )
+            log_audit_event(
+                "pass_invalidi",
+                "update" if is_edit else "create",
+                "pass_invalidi",
+                str(numero),
+                "Modifica nominativo registrata nella copia di lavoro"
+                if is_edit
+                else "Nuovo nominativo registrato nella copia di lavoro",
+                extra={"source": source_name},
+            )
             self.btn_save_changes.config(state="normal")
             self.applica_filtro()
             win.destroy()
@@ -1672,12 +1677,23 @@ finally {
             else:
                 self._write_pending_with_excel_com(self._working_copy_file)
             create_excel_backup(self._primary_source_file, "pass_invalidi")
+            log_audit_event("pass_invalidi", "backup", "excel", None, "Backup file originale Pass Invalidi creato")
             shutil.copy2(self._working_copy_file, self._primary_source_file)
         except Exception as exc:
             logger.exception("Errore salvataggio modifiche pass invalidi")
+            log_audit_event(
+                "pass_invalidi",
+                "save",
+                "excel",
+                None,
+                "Salvataggio modifiche Pass Invalidi non riuscito",
+                result="error",
+                error=str(exc),
+            )
             messagebox.showerror("Salvataggio non riuscito", f"Impossibile salvare le modifiche.\n\nDettagli:\n{exc}")
             return False
 
+        saved_count = len(self._pending_new_records)
         for rec in self.all_records:
             rec.pop("_pending", None)
         self._pending_new_records = []
@@ -1687,6 +1703,14 @@ finally {
         else:
             self.applica_filtro()
         messagebox.showinfo("Salvataggio completato", "Le modifiche sono state salvate sul file Excel.")
+        log_audit_event(
+            "pass_invalidi",
+            "save",
+            "excel",
+            None,
+            "Salvate modifiche Pass Invalidi sul file originale",
+            extra={"count": saved_count},
+        )
         return True
 
     @staticmethod

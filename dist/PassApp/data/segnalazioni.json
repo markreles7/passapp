@@ -1,0 +1,25 @@
+{
+  "segnalazioni": [
+    {
+      "numero_progressivo": 1,
+      "anno": "2026",
+      "mese": "04",
+      "giorno": "29",
+      "ora": "12:35",
+      "nominativo": "",
+      "residenza": "",
+      "indirizzo": "",
+      "telefono": "",
+      "modalita_segnalazione": "Personalmente",
+      "descrizione_segnalazione": "",
+      "ricevente": "",
+      "agente_verificatore": "",
+      "verifica_effettuata": "",
+      "data_verifica": "",
+      "categoria": "Altro",
+      "priorita": "Media",
+      "stato_lavorazione": "Aperta",
+      "stato": "in_corso"
+    }
+  ]
+}

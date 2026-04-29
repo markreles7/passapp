@@ -16,7 +16,7 @@ class TestDashboardService(unittest.TestCase):
 
     def test_summarize_priority_fields_counts_high_and_missing_values(self):
         items = [
-            {"priorita": "Alta", "categoria": "Viabilita"},
+            {"priorità": "Alta", "categoria": "Viabilita"},
             {"priorita": "Bassa", "categoria": ""},
             {"priorita": "", "categoria": "Ambiente"},
         ]

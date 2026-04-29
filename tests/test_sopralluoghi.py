@@ -31,6 +31,17 @@ class TestSopralluoghi(unittest.TestCase):
             self.assertEqual(len(linked), 1)
             self.assertEqual(linked[0].id_sopralluogo, 1)
 
+    def test_malformed_json_returns_empty_and_creates_backup(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "sopralluoghi.json"
+            path.write_text("{json non valido", encoding="utf-8")
+
+            records = load_sopralluoghi(path)
+            backups = list((Path(tmp_dir) / "backups" / "sopralluoghi").glob("sopralluoghi_malformed_*.json"))
+
+        self.assertEqual(records, [])
+        self.assertEqual(len(backups), 1)
+
     def test_upsert_and_delete(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "sopralluoghi.json"

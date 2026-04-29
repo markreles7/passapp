@@ -2,14 +2,24 @@ __pycache__/
 *.pyc
 *.py[cod]
 .venv/
+.pytest_cache/
+.ruff_cache/
 *.log
 *.tmp
 *.bak
 
 data/*.log
 data/passapp.log
+data/audit_log.jsonl
+data/segnalazioni.json
+data/contatti.json
+data/sopralluoghi.json
+data/fascicoli.json
+data/config.json
 data/workcopies/
 data/backups/
 documenti/segnalazioni_pdf/*.pdf
+documenti/fascicoli_segnalazioni/
+documenti/report_mensili/
 documenti/export_temp/
 documenti/tmp/

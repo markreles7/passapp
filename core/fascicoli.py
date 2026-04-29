@@ -13,15 +13,18 @@ from pathlib import Path
 from typing import Any
 
 from app_config import BASE_DIR, load_config, resolve_path
+from core.logging_utils import setup_module_logger
 
 APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
 
 FASCICOLI_BASE_DIR = resolve_path(PATHS.get("fascicoli_segnalazioni_dir", "documenti/fascicoli_segnalazioni"))
 FASCICOLI_FILE = resolve_path("data/fascicoli.json")
+FASCICOLI_MALFORMED_BACKUP_DIR = resolve_path("data/backups/fascicoli")
 FASCICOLO_SUBDIRS = ("foto", "allegati", "sopralluoghi", "documenti", "export")
 INVALID_WINDOWS_CHARS = r'<>:"/\\|?*'
 PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp"}
+logger = setup_module_logger(__name__, resolve_path("data/passapp.log"))
 
 
 @dataclass
@@ -234,8 +237,16 @@ def open_path(path: Path) -> None:
 def load_registry(path: Path = FASCICOLI_FILE) -> dict[str, list[dict[str, Any]]]:
     if not path.exists():
         return {"fascicoli": [], "allegati": []}
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except json.JSONDecodeError:
+        backup = backup_malformed_registry_file(path)
+        logger.exception("Registro fascicoli JSON malformato. Backup creato: %s", backup)
+        return {"fascicoli": [], "allegati": []}
+    except OSError:
+        logger.exception("Registro fascicoli non leggibile: %s", path)
+        return {"fascicoli": [], "allegati": []}
     if not isinstance(payload, dict):
         return {"fascicoli": [], "allegati": []}
     fascicoli = payload.get("fascicoli", [])
@@ -289,6 +300,23 @@ def relative_to_path(value: str) -> Path:
 
 def now_timestamp() -> str:
     return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def backup_malformed_registry_file(path: Path) -> Path:
+    backup_dir = _backup_dir_for(path)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup = backup_dir / f"{path.stem}_malformed_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}{path.suffix}"
+    shutil.copy2(path, backup)
+    return backup
+
+
+def _backup_dir_for(path: Path) -> Path:
+    try:
+        if path.resolve() == FASCICOLI_FILE.resolve():
+            return FASCICOLI_MALFORMED_BACKUP_DIR
+    except OSError:
+        pass
+    return path.parent / "backups" / "fascicoli"
 
 
 def _subdir_for_tipo(tipo: str) -> str:

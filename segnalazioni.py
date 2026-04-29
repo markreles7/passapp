@@ -8,11 +8,13 @@ import re
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from app_config import load_config, resolve_path
+from core.audit import log_audit_event
 from core.fascicoli import add_attachment, ensure_fascicolo, generate_photo_sheet_html, open_path
 from core.logging_utils import setup_module_logger
 from core.powershell import check_office_com
@@ -37,6 +39,36 @@ TEXT_DIM = THEME["text_dim"]
 
 MODALITA_OPZIONI = ("Personalmente", "Telefonicamente")
 STATO_OPZIONI = ("in_corso", "archiviata")
+CATEGORIA_OPZIONI = (
+    "Viabilita",
+    "Sosta",
+    "Segnaletica",
+    "Decoro urbano",
+    "Rifiuti",
+    "Illuminazione pubblica",
+    "Verde pubblico",
+    "Animali",
+    "Rumore",
+    "Occupazione suolo pubblico",
+    "Sicurezza urbana",
+    "Abusi/irregolarita",
+    "Altro",
+)
+PRIORITA_OPZIONI = ("Bassa", "Media", "Alta", "Urgente")
+STATO_LAVORAZIONE_OPZIONI = (
+    "Aperta",
+    "In valutazione",
+    "Sopralluogo da programmare",
+    "Sopralluogo programmato",
+    "In attesa altro ufficio",
+    "In lavorazione",
+    "Chiusa",
+    "Archiviata",
+)
+CATEGORIA_DEFAULT = "Altro"
+PRIORITA_DEFAULT = "Media"
+STATO_LAVORAZIONE_DEFAULT = "Aperta"
+PRIORITA_RANK = {"Urgente": 0, "Alta": 1, "Media": 2, "Bassa": 3}
 DATA_DIR = resolve_path("data")
 SEGNALAZIONI_FILE = resolve_path(PATHS["segnalazioni_file"])
 SEGNALAZIONI_BACKUP_FILE = Path(f"{SEGNALAZIONI_FILE}.bak")
@@ -50,6 +82,93 @@ except OSError:
     pass
 
 logger = setup_module_logger(__name__, LOG_FILE)
+
+
+def _norm_label(value: str) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return text
+
+
+def _normalize_choice(value: str, options: tuple[str, ...], default: str) -> str:
+    marker = _norm_label(value)
+    if not marker:
+        return default
+    for option in options:
+        if _norm_label(option) == marker:
+            return option
+    return default
+
+
+def normalize_categoria(value: str) -> str:
+    return _normalize_choice(value, CATEGORIA_OPZIONI, CATEGORIA_DEFAULT)
+
+
+def normalize_priorita(value: str) -> str:
+    aliases = {
+        "alta priorita": "Alta",
+        "alta": "Alta",
+        "urgente": "Urgente",
+        "urgent": "Urgente",
+        "high": "Alta",
+        "media": "Media",
+        "medium": "Media",
+        "bassa": "Bassa",
+        "low": "Bassa",
+    }
+    marker = _norm_label(value)
+    return aliases.get(marker) or _normalize_choice(value, PRIORITA_OPZIONI, PRIORITA_DEFAULT)
+
+
+def normalize_stato_lavorazione(value: str, stato_record: str = "in_corso") -> str:
+    marker = _norm_label(value)
+    aliases = {
+        "in_corso": "Aperta",
+        "aperta": "Aperta",
+        "aperto": "Aperta",
+        "archiviata": "Archiviata",
+        "archiviato": "Archiviata",
+        "chiusa": "Chiusa",
+        "chiuso": "Chiusa",
+    }
+    if marker in aliases:
+        return aliases[marker]
+    default = "Archiviata" if stato_record == "archiviata" else STATO_LAVORAZIONE_DEFAULT
+    return _normalize_choice(value, STATO_LAVORAZIONE_OPZIONI, default)
+
+
+def segnalazione_sort_key(seg: "Segnalazione"):
+    try:
+        date_key = dt.datetime(int(seg.anno), int(seg.mese), int(seg.giorno), 0, 0).timestamp()
+    except (TypeError, ValueError):
+        date_key = 0.0
+    return (PRIORITA_RANK.get(seg.priorita, 99), -date_key, -int(seg.numero_progressivo))
+
+
+def segnalazione_matches_filters(
+    seg: "Segnalazione",
+    *,
+    query: str = "",
+    categoria: str = "Tutte",
+    priorita: str = "Tutte",
+    stato_lavorazione: str = "Tutti",
+    solo_urgenti: bool = False,
+    solo_aperte: bool = False,
+) -> bool:
+    if query and query not in seg.searchable_text():
+        return False
+    if categoria != "Tutte" and seg.categoria != categoria:
+        return False
+    if priorita != "Tutte" and seg.priorita != priorita:
+        return False
+    if stato_lavorazione != "Tutti" and seg.stato_lavorazione != stato_lavorazione:
+        return False
+    if solo_urgenti and seg.priorita != "Urgente":
+        return False
+    if solo_aperte and seg.stato_lavorazione in {"Chiusa", "Archiviata"}:
+        return False
+    return True
 
 
 @dataclass
@@ -69,6 +188,9 @@ class Segnalazione:
     agente_verificatore: str = ""
     verifica_effettuata: str = ""
     data_verifica: str = ""
+    categoria: str = CATEGORIA_DEFAULT
+    priorita: str = PRIORITA_DEFAULT
+    stato_lavorazione: str = STATO_LAVORAZIONE_DEFAULT
     stato: str = "in_corso"
 
     def searchable_text(self) -> str:
@@ -88,6 +210,9 @@ class Segnalazione:
             self.agente_verificatore,
             self.verifica_effettuata,
             self.data_verifica,
+            self.categoria,
+            self.priorita,
+            self.stato_lavorazione,
             self.stato,
         ]
         return " ".join(parts).lower()
@@ -108,6 +233,12 @@ class Segnalazione:
         stato = str(raw.get("stato", "in_corso"))
         if stato not in STATO_OPZIONI:
             stato = "in_corso"
+        categoria = normalize_categoria(str(raw.get("categoria", raw.get("category", ""))))
+        priorita = normalize_priorita(str(raw.get("priorita", raw.get("priorità", raw.get("priority", "")))))
+        stato_lavorazione = normalize_stato_lavorazione(
+            str(raw.get("stato_lavorazione", raw.get("stato_lavoro", ""))),
+            stato,
+        )
 
         return cls(
             numero_progressivo=numero,
@@ -125,6 +256,9 @@ class Segnalazione:
             agente_verificatore=str(raw.get("agente_verificatore", "")),
             verifica_effettuata=str(raw.get("verifica_effettuata", "")),
             data_verifica=str(raw.get("data_verifica", "")),
+            categoria=categoria,
+            priorita=priorita,
+            stato_lavorazione=stato_lavorazione,
             stato=stato,
         )
 
@@ -149,6 +283,19 @@ class SegnalazioniFrame(tk.Frame):
         self.search_archiviate = tk.StringVar()
         self.search_in_corso.trace_add("write", lambda *_: self._refresh_trees())
         self.search_archiviate.trace_add("write", lambda *_: self._refresh_trees())
+        self.filter_categoria = tk.StringVar(value="Tutte")
+        self.filter_priorita = tk.StringVar(value="Tutte")
+        self.filter_stato_lavorazione = tk.StringVar(value="Tutti")
+        self.filter_solo_urgenti = tk.BooleanVar(value=False)
+        self.filter_solo_aperte = tk.BooleanVar(value=False)
+        for var in (
+            self.filter_categoria,
+            self.filter_priorita,
+            self.filter_stato_lavorazione,
+            self.filter_solo_urgenti,
+            self.filter_solo_aperte,
+        ):
+            var.trace_add("write", lambda *_: self._refresh_trees())
 
         self.var_numero = tk.StringVar()
         self.var_anno = tk.StringVar()
@@ -163,6 +310,9 @@ class SegnalazioniFrame(tk.Frame):
         self.var_ricevente = tk.StringVar()
         self.var_agente = tk.StringVar()
         self.var_data_verifica = tk.StringVar()
+        self.var_categoria = tk.StringVar(value=CATEGORIA_DEFAULT)
+        self.var_priorita = tk.StringVar(value=PRIORITA_DEFAULT)
+        self.var_stato_lavorazione = tk.StringVar(value=STATO_LAVORAZIONE_DEFAULT)
         self.var_stato = tk.StringVar(value="in_corso")
 
         self._ttk_style = ttk.Style(self)
@@ -334,8 +484,10 @@ class SegnalazioniFrame(tk.Frame):
             font=("Segoe UI", 12, "bold"),
         ).pack(anchor="w", padx=12, pady=(12, 0))
 
+        self._build_filter_bar(parent)
+
         self.notebook = ttk.Notebook(parent, style="Segn.TNotebook")
-        self.notebook.pack(fill="both", expand=True, padx=10, pady=(8, 10))
+        self.notebook.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
         self.tab_in = tk.Frame(self.notebook, bg=SURFACE)
         self.tab_arch = tk.Frame(self.notebook, bg=SURFACE)
@@ -344,6 +496,38 @@ class SegnalazioniFrame(tk.Frame):
 
         self.tree_in = self._build_single_list(self.tab_in, self.search_in_corso, "in_corso")
         self.tree_arch = self._build_single_list(self.tab_arch, self.search_archiviate, "archiviata")
+
+    def _build_filter_bar(self, parent):
+        bar = tk.Frame(parent, bg=SURFACE)
+        bar.pack(fill="x", padx=12, pady=(0, 8))
+
+        def combo(label, variable, values, width):
+            cell = tk.Frame(bar, bg=SURFACE)
+            cell.pack(side="left", padx=(0, 8))
+            tk.Label(cell, text=label, bg=SURFACE, fg=TEXT_MUTED, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+            ttk.Combobox(cell, textvariable=variable, values=values, state="readonly", width=width).pack(anchor="w")
+
+        combo("Categoria", self.filter_categoria, ("Tutte",) + CATEGORIA_OPZIONI, 18)
+        combo("Priorita", self.filter_priorita, ("Tutte",) + PRIORITA_OPZIONI, 10)
+        combo("Stato", self.filter_stato_lavorazione, ("Tutti",) + STATO_LAVORAZIONE_OPZIONI, 22)
+        tk.Checkbutton(
+            bar,
+            text="Solo urgenti",
+            variable=self.filter_solo_urgenti,
+            bg=SURFACE,
+            fg=TEXT,
+            activebackground=SURFACE,
+            selectcolor=SURFACE,
+        ).pack(side="left", padx=(2, 0), pady=(14, 0))
+        tk.Checkbutton(
+            bar,
+            text="Solo aperte/non chiuse",
+            variable=self.filter_solo_aperte,
+            bg=SURFACE,
+            fg=TEXT,
+            activebackground=SURFACE,
+            selectcolor=SURFACE,
+        ).pack(side="left", padx=(8, 0), pady=(14, 0))
 
     def _build_single_list(self, parent, search_var, stato):
         top = tk.Frame(parent, bg=SURFACE)
@@ -382,7 +566,7 @@ class SegnalazioniFrame(tk.Frame):
 
         tree = ttk.Treeview(
             frame,
-            columns=("numero", "data", "ora", "nominativo", "ricevente"),
+            columns=("numero", "data", "priorita", "categoria", "stato_lavorazione", "nominativo"),
             show="headings",
             yscrollcommand=vsb.set,
             selectmode="browse",
@@ -390,19 +574,23 @@ class SegnalazioniFrame(tk.Frame):
         )
         tree.heading("numero", text="N°")
         tree.heading("data", text="Data")
-        tree.heading("ora", text="Ora")
+        tree.heading("priorita", text="Priorita")
+        tree.heading("categoria", text="Categoria")
+        tree.heading("stato_lavorazione", text="Stato")
         tree.heading("nominativo", text="Nominativo")
-        tree.heading("ricevente", text="Ricevente")
 
         tree.column("numero", width=55, anchor="center")
         tree.column("data", width=95, anchor="center")
-        tree.column("ora", width=70, anchor="center")
-        tree.column("nominativo", width=180, anchor="w")
-        tree.column("ricevente", width=120, anchor="w")
+        tree.column("priorita", width=80, anchor="center")
+        tree.column("categoria", width=135, anchor="w")
+        tree.column("stato_lavorazione", width=145, anchor="w")
+        tree.column("nominativo", width=160, anchor="w")
         tree.pack(fill="both", expand=True)
         tree.tag_configure("odd", background="#FAFAF8")
         tree.tag_configure("even", background=SURFACE)
         tree.tag_configure("arch", foreground=TEXT_MUTED)
+        tree.tag_configure("priority_high", foreground="#8E2E24")
+        tree.tag_configure("priority_urgent", background="#FFE1DC", foreground="#8E2E24")
         vsb.config(command=tree.yview)
         tree.bind("<<TreeviewSelect>>", lambda _e, t=tree, s=stato: self._on_select(t, s))
         return tree
@@ -622,6 +810,16 @@ class SegnalazioniFrame(tk.Frame):
         self._compact_protocol_row(sec_protocollo)
         self._entry_row(sec_protocollo, "Stato", self.var_stato, readonly=True)
 
+        sec_classificazione = self._section_box("Classificazione")
+        self._combo_row(sec_classificazione, "Categoria", self.var_categoria, CATEGORIA_OPZIONI)
+        self._combo_row(sec_classificazione, "Priorita", self.var_priorita, PRIORITA_OPZIONI)
+        self._combo_row(
+            sec_classificazione,
+            "Stato lavorazione",
+            self.var_stato_lavorazione,
+            STATO_LAVORAZIONE_OPZIONI,
+        )
+
         sec_cittadino = self._section_box("Dati del Cittadino")
         self._entry_row(sec_cittadino, "Nominativo", self.var_nominativo)
         self._entry_row(sec_cittadino, "Residenza", self.var_residenza)
@@ -726,6 +924,17 @@ class SegnalazioniFrame(tk.Frame):
             self._readonly_widgets.append(ent)
         return ent
 
+    def _combo_row(self, parent, label, var, values):
+        row = tk.Frame(parent, bg=BG2)
+        row.pack(fill="x", pady=4)
+        tk.Label(row, text=label, bg=BG2, fg=TEXT_MUTED, font=("Segoe UI", 9, "bold"), width=22, anchor="w").pack(
+            side="left"
+        )
+        combo = ttk.Combobox(row, textvariable=var, values=values, state="readonly", font=("Segoe UI", 10))
+        combo.pack(side="left", fill="x", expand=True, ipady=3)
+        self._detail_widgets.append(combo)
+        return combo
+
     def _mode_row(self, parent, label, var):
         row = tk.Frame(parent, bg=BG2)
         row.pack(fill="x", pady=4)
@@ -785,7 +994,14 @@ class SegnalazioniFrame(tk.Frame):
         )
         self._next_progressivo += 1
         self.segnalazioni.append(seg)
-        self._save_to_disk()
+        if self._save_to_disk():
+            log_audit_event(
+                "segnalazioni",
+                "create",
+                "segnalazione",
+                f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+                "Creata nuova segnalazione",
+            )
         self._refresh_trees()
         self.notebook.select(self.tab_in)
         self._select_report(seg.numero_progressivo, "in_corso")
@@ -802,15 +1018,27 @@ class SegnalazioniFrame(tk.Frame):
     def _fill_tree(self, tree, stato, query):
         tree.delete(*tree.get_children())
         row_idx = 0
-        for seg in self.segnalazioni:
+        for seg in sorted(self.segnalazioni, key=segnalazione_sort_key):
             if seg.stato != stato:
                 continue
-            if query and query not in seg.searchable_text():
+            if not segnalazione_matches_filters(
+                seg,
+                query=query,
+                categoria=self.filter_categoria.get(),
+                priorita=self.filter_priorita.get(),
+                stato_lavorazione=self.filter_stato_lavorazione.get(),
+                solo_urgenti=self.filter_solo_urgenti.get(),
+                solo_aperte=self.filter_solo_aperte.get(),
+            ):
                 continue
             iid = f"{stato}:{seg.numero_progressivo}"
             tags = ["odd" if row_idx % 2 else "even"]
             if stato == "archiviata":
                 tags.append("arch")
+            if seg.priorita == "Alta":
+                tags.append("priority_high")
+            if seg.priorita == "Urgente":
+                tags.append("priority_urgent")
             tree.insert(
                 "",
                 "end",
@@ -819,9 +1047,10 @@ class SegnalazioniFrame(tk.Frame):
                 values=(
                     seg.numero_progressivo,
                     f"{seg.giorno}/{seg.mese}/{seg.anno}",
-                    seg.ora,
+                    seg.priorita,
+                    seg.categoria,
+                    seg.stato_lavorazione,
                     seg.nominativo or "—",
-                    seg.ricevente or "—",
                 ),
             )
             row_idx += 1
@@ -865,6 +1094,9 @@ class SegnalazioniFrame(tk.Frame):
         self.var_ricevente.set(seg.ricevente)
         self.var_agente.set(seg.agente_verificatore)
         self.var_data_verifica.set(seg.data_verifica)
+        self.var_categoria.set(normalize_categoria(seg.categoria))
+        self.var_priorita.set(normalize_priorita(seg.priorita))
+        self.var_stato_lavorazione.set(normalize_stato_lavorazione(seg.stato_lavorazione, seg.stato))
         self.var_stato.set(seg.stato)
 
         self.txt_descrizione.configure(state="normal")
@@ -892,6 +1124,9 @@ class SegnalazioniFrame(tk.Frame):
         self.var_ricevente.set("")
         self.var_agente.set("")
         self.var_data_verifica.set("")
+        self.var_categoria.set(CATEGORIA_DEFAULT)
+        self.var_priorita.set(PRIORITA_DEFAULT)
+        self.var_stato_lavorazione.set(STATO_LAVORAZIONE_DEFAULT)
         self.var_stato.set("")
         self.txt_descrizione.configure(state="normal")
         self.txt_descrizione.delete("1.0", "end")
@@ -937,6 +1172,8 @@ class SegnalazioniFrame(tk.Frame):
                 if w in self._readonly_widgets:
                     continue
                 w.configure(state="normal" if editable else "disabled")
+            elif isinstance(w, ttk.Combobox):
+                w.configure(state="readonly" if editable else "disabled")
         for rb in self._radio_widgets:
             rb.configure(state="normal" if editable else "disabled")
         self.btn_save.configure(state="normal" if editable else "disabled")
@@ -984,6 +1221,12 @@ class SegnalazioniFrame(tk.Frame):
             return False, "Il campo Segnala e obbligatorio."
         if not ricevente:
             return False, "Il campo Ricevente e obbligatorio."
+        if self.var_categoria.get() not in CATEGORIA_OPZIONI:
+            return False, "Categoria non valida."
+        if self.var_priorita.get() not in PRIORITA_OPZIONI:
+            return False, "Priorita non valida."
+        if self.var_stato_lavorazione.get() not in STATO_LAVORAZIONE_OPZIONI:
+            return False, "Stato lavorazione non valido."
 
         return True, ""
 
@@ -1005,6 +1248,10 @@ class SegnalazioniFrame(tk.Frame):
             messagebox.showwarning("Dati non validi", reason)
             return False
 
+        old_stato_lavorazione = seg.stato_lavorazione
+        old_priorita = seg.priorita
+        old_categoria = seg.categoria
+
         seg.anno = self.var_anno.get().strip()
         seg.mese = self.var_mese.get().strip()
         seg.giorno = self.var_giorno.get().strip()
@@ -1019,8 +1266,31 @@ class SegnalazioniFrame(tk.Frame):
         seg.agente_verificatore = self.var_agente.get().strip()
         seg.verifica_effettuata = self.txt_verifica.get("1.0", "end").strip()
         seg.data_verifica = self.var_data_verifica.get().strip()
+        seg.categoria = normalize_categoria(self.var_categoria.get())
+        seg.priorita = normalize_priorita(self.var_priorita.get())
+        seg.stato_lavorazione = normalize_stato_lavorazione(self.var_stato_lavorazione.get(), seg.stato)
         if not self._save_to_disk():
             return False
+        log_audit_event(
+            "segnalazioni",
+            "update",
+            "segnalazione",
+            f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+            "Modificata segnalazione",
+            extra={
+                "categoria": f"{old_categoria} -> {seg.categoria}" if old_categoria != seg.categoria else seg.categoria,
+                "priorita": f"{old_priorita} -> {seg.priorita}" if old_priorita != seg.priorita else seg.priorita,
+            },
+        )
+        if old_stato_lavorazione != seg.stato_lavorazione:
+            log_audit_event(
+                "segnalazioni",
+                "status_change",
+                "segnalazione",
+                f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+                "Cambio stato lavorazione segnalazione",
+                extra={"from": old_stato_lavorazione, "to": seg.stato_lavorazione},
+            )
         self._refresh_trees()
         self._select_report(seg.numero_progressivo, seg.stato)
         return True
@@ -1048,8 +1318,16 @@ class SegnalazioniFrame(tk.Frame):
             seg.data_verifica = dt.date.today().strftime("%d/%m/%Y")
 
         seg.stato = "archiviata"
+        seg.stato_lavorazione = "Archiviata"
         if not self._save_to_disk():
             return
+        log_audit_event(
+            "segnalazioni",
+            "close",
+            "segnalazione",
+            f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+            "Chiusa/archiviata segnalazione",
+        )
         self._refresh_trees()
         self.notebook.select(self.tab_arch)
         self._select_report(seg.numero_progressivo, "archiviata")
@@ -1089,7 +1367,14 @@ class SegnalazioniFrame(tk.Frame):
             return
 
         self.segnalazioni = [s for s in self.segnalazioni if s.numero_progressivo != seg.numero_progressivo]
-        self._save_to_disk()
+        if self._save_to_disk():
+            log_audit_event(
+                "segnalazioni",
+                "delete",
+                "segnalazione",
+                f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+                "Eliminata segnalazione",
+            )
         self._refresh_trees()
         self._clear_selection()
 
@@ -1122,8 +1407,24 @@ class SegnalazioniFrame(tk.Frame):
             folder = ensure_fascicolo(seg)
         except Exception as exc:
             logger.exception("Errore creazione fascicolo segnalazione n. %s", seg.numero_progressivo)
+            log_audit_event(
+                "segnalazioni",
+                "create_fascicolo",
+                "fascicolo",
+                f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+                "Creazione fascicolo non riuscita",
+                result="error",
+                error=str(exc),
+            )
             messagebox.showerror("Fascicolo non creato", f"Impossibile creare il fascicolo.\n\n{exc}")
             return
+        log_audit_event(
+            "segnalazioni",
+            "create_fascicolo",
+            "fascicolo",
+            f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+            "Creato/aperto fascicolo digitale",
+        )
         self._update_fascicolo_status()
         messagebox.showinfo("Fascicolo creato", f"Fascicolo disponibile in:\n{folder}")
 
@@ -1161,7 +1462,24 @@ class SegnalazioniFrame(tk.Frame):
                 added += 1
             except Exception:
                 logger.exception("Errore aggiunta file al fascicolo: %s", filename)
+                log_audit_event(
+                    "segnalazioni",
+                    "add_attachment",
+                    "fascicolo",
+                    f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+                    "Aggiunta allegato/foto non riuscita",
+                    result="error",
+                )
         self._update_fascicolo_status()
+        if added:
+            log_audit_event(
+                "segnalazioni",
+                "add_attachment",
+                "fascicolo",
+                f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+                "Aggiunti allegati/foto al fascicolo",
+                extra={"count": added, "tipo": tipo},
+            )
         messagebox.showinfo("Fascicolo aggiornato", f"File aggiunti: {added}")
 
     def _show_fascicolo(self):
@@ -1232,6 +1550,9 @@ class SegnalazioniFrame(tk.Frame):
             "indirizzo": value_or_dash(seg.indirizzo),
             "telefono": value_or_dash(seg.telefono),
             "modalita": value_or_dash(seg.modalita_segnalazione) if seg.modalita_segnalazione else MODALITA_OPZIONI[0],
+            "categoria": value_or_dash(seg.categoria),
+            "priorita": value_or_dash(seg.priorita),
+            "stato_lavorazione": value_or_dash(seg.stato_lavorazione),
             "ricevente": value_or_dash(seg.ricevente),
             "descrizione": value_or_dash(seg.descrizione_segnalazione),
             "agente": value_or_dash(seg.agente_verificatore),
@@ -1257,6 +1578,9 @@ class SegnalazioniFrame(tk.Frame):
             agente_verificatore=self.var_agente.get().strip() or seg.agente_verificatore,
             verifica_effettuata=self.txt_verifica.get("1.0", "end").strip() or seg.verifica_effettuata,
             data_verifica=self.var_data_verifica.get().strip() or seg.data_verifica,
+            categoria=normalize_categoria(self.var_categoria.get() or seg.categoria),
+            priorita=normalize_priorita(self.var_priorita.get() or seg.priorita),
+            stato_lavorazione=normalize_stato_lavorazione(self.var_stato_lavorazione.get() or seg.stato_lavorazione, seg.stato),
             stato=seg.stato,
         )
 
@@ -1296,6 +1620,15 @@ class SegnalazioniFrame(tk.Frame):
             self._render_pdf_report(payload, out_path)
         except Exception as exc:
             logger.exception("Errore esportazione PDF segnalazione n. %s", seg.numero_progressivo)
+            log_audit_event(
+                "segnalazioni",
+                "export_pdf",
+                "segnalazione",
+                f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+                "Generazione PDF segnalazione non riuscita",
+                result="error",
+                error=str(exc),
+            )
             messagebox.showerror(
                 "Esportazione non riuscita",
                 f"Impossibile creare il PDF.\n\nDettagli:\n{exc}",
@@ -1307,6 +1640,13 @@ class SegnalazioniFrame(tk.Frame):
             self._update_fascicolo_status()
         except Exception:
             logger.exception("Errore registrazione PDF nel fascicolo segnalazione n. %s", seg.numero_progressivo)
+        log_audit_event(
+            "segnalazioni",
+            "export_pdf",
+            "segnalazione",
+            f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+            "Generato PDF segnalazione",
+        )
 
         messagebox.showinfo("PDF creato", f"Segnalazione esportata in:\n{out_path}")
 
@@ -1454,6 +1794,9 @@ try {
     $indirizzo = Compact-Text -Text $payload.indirizzo -MaxLength 110
     $telefono = Compact-Text -Text $payload.telefono -MaxLength 30
     $modalita = Compact-Text -Text $payload.modalita -MaxLength 30
+    $categoria = Compact-Text -Text $payload.categoria -MaxLength 45
+    $priorita = Compact-Text -Text $payload.priorita -MaxLength 20
+    $statoLavorazione = Compact-Text -Text $payload.stato_lavorazione -MaxLength 45
     $ricevente = Compact-Text -Text $payload.ricevente -MaxLength 60
     $descrizione = Compact-Text -Text $payload.descrizione -MaxLength 650
     $agente = Compact-Text -Text $payload.agente -MaxLength 60
@@ -1473,6 +1816,8 @@ try {
 
     Add-LeftRightLine -Selection $sel -LeftText ("Pratica n. " + $numero + " - Stato: " + $stato) -RightText ("Rif.: " + $riferimento) -RightTab $rightTab -Size 9 -BoldLeft $true -BoldRight $true -SpaceAfter 5
     Add-InfoLine -Selection $sel -LabelLeft "Data/Ora ricezione: " -ValueLeft $ricezione -MidTab $midTab -LabelRight "Modalita': " -ValueRight $modalita -Size 9 -SpaceAfter 2
+    Add-InfoLine -Selection $sel -LabelLeft "Categoria: " -ValueLeft $categoria -MidTab $midTab -LabelRight "Priorita': " -ValueRight $priorita -Size 9 -SpaceAfter 2
+    Add-InfoLine -Selection $sel -LabelLeft "Stato lavorazione: " -ValueLeft $statoLavorazione -MidTab $midTab -Size 9 -SpaceAfter 2
     Add-InfoLine -Selection $sel -LabelLeft "Segnalante: " -ValueLeft $nominativo -MidTab $midTab -LabelRight "Operatore ricevente: " -ValueRight $ricevente -Size 9 -SpaceAfter 2
     Add-InfoLine -Selection $sel -LabelLeft "Residenza: " -ValueLeft $residenza -MidTab $midTab -LabelRight "Telefono: " -ValueRight $telefono -Size 9 -SpaceAfter 2
     Add-InfoLine -Selection $sel -LabelLeft "Indirizzo: " -ValueLeft $indirizzo -MidTab $midTab -Size 9 -SpaceAfter 5

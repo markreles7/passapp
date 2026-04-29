@@ -1,0 +1,4 @@
+{"timestamp":"2026-04-29T12:34:55","module":"contatti","action":"seed","entity_type":"contatti","entity_id":null,"description":"Importati 30 contatti iniziali.","result":"success","error":null,"operator":null,"extra":null}
+{"timestamp":"2026-04-29T12:35:06","module":"sistema","action":"diagnostics","entity_type":"system","entity_id":null,"description":"Diagnostica configurazione eseguita","result":"success","error":null,"operator":null,"extra":null}
+{"timestamp":"2026-04-29T12:35:41","module":"segnalazioni","action":"create","entity_type":"segnalazione","entity_id":"SEG-2026-0001","description":"Creata nuova segnalazione","result":"success","error":null,"operator":null,"extra":null}
+{"timestamp":"2026-04-29T12:36:47","module":"sistema","action":"diagnostics","entity_type":"system","entity_id":null,"description":"Diagnostica configurazione eseguita","result":"success","error":null,"operator":null,"extra":null}

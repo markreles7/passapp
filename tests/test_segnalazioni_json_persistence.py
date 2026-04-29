@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 
 import segnalazioni as seg_mod
-from segnalazioni import Segnalazione, SegnalazioniFrame
+from segnalazioni import (
+    Segnalazione,
+    SegnalazioniFrame,
+    normalize_priorita,
+    segnalazione_matches_filters,
+)
 
 
 class TestSegnalazioniJsonPersistence(unittest.TestCase):
@@ -111,6 +116,53 @@ class TestSegnalazioniJsonPersistence(unittest.TestCase):
         self.assertEqual(len(frame.segnalazioni), 1)
         self.assertEqual(frame.segnalazioni[0].numero_progressivo, 7)
         self.assertEqual(frame._next_progressivo, 8)
+
+    def test_load_old_record_without_category_priority_uses_defaults(self):
+        seg_mod.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "segnalazioni": [
+                {
+                    "numero_progressivo": 3,
+                    "anno": "2026",
+                    "mese": "04",
+                    "giorno": "28",
+                    "ora": "10:00",
+                    "nominativo": "Vecchio Record",
+                    "stato": "in_corso",
+                }
+            ]
+        }
+        seg_mod.SEGNALAZIONI_FILE.write_text(json.dumps(payload), encoding="utf-8")
+
+        frame = self._frame_stub()
+        frame._load_from_disk()
+
+        self.assertEqual(frame.segnalazioni[0].categoria, "Altro")
+        self.assertEqual(frame.segnalazioni[0].priorita, "Media")
+        self.assertEqual(frame.segnalazioni[0].stato_lavorazione, "Aperta")
+
+    def test_normalize_priorita(self):
+        self.assertEqual(normalize_priorita("alta priorita"), "Alta")
+        self.assertEqual(normalize_priorita("urgent"), "Urgente")
+        self.assertEqual(normalize_priorita(""), "Media")
+
+    def test_filter_priority_and_category(self):
+        seg = Segnalazione(
+            numero_progressivo=4,
+            anno="2026",
+            mese="04",
+            giorno="28",
+            ora="10:00",
+            nominativo="Mario Rossi",
+            categoria="Viabilita",
+            priorita="Urgente",
+            stato_lavorazione="In lavorazione",
+        )
+
+        self.assertTrue(segnalazione_matches_filters(seg, categoria="Viabilita", priorita="Urgente"))
+        self.assertTrue(segnalazione_matches_filters(seg, solo_urgenti=True))
+        self.assertFalse(segnalazione_matches_filters(seg, categoria="Sosta"))
+        self.assertFalse(segnalazione_matches_filters(seg, priorita="Bassa"))
 
 
 if __name__ == "__main__":
