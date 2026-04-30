@@ -15,13 +15,14 @@ APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
 UI_CONFIG = APP_CONFIG["ui"]
 THEME = UI_CONFIG["theme"]
+REPORT_UI = UI_CONFIG["modules"]["report"]
 
 BG = THEME["bg"]
 BG2 = THEME["bg2"]
 SURFACE = THEME["surface"]
 BORDER = THEME["border"]
-ACCENT = THEME["accent"]
-ACCENT_DARK = THEME["accent_dark"]
+ACCENT = REPORT_UI["accent"]
+ACCENT_DARK = REPORT_UI["accent_dark"]
 TEXT = THEME["text"]
 TEXT_MUTED = THEME["text_muted"]
 SUCCESS = THEME["success"]
@@ -124,11 +125,13 @@ class ReportMensileWindow(tk.Toplevel):
 
         actions = tk.Frame(shell, bg=BG)
         actions.pack(fill="x", pady=(0, 10))
-        self._button(actions, "Anteprima report", ACCENT, self.preview_report).pack(side="left")
+        self.btn_preview = self._button(actions, "Anteprima report", ACCENT, self.preview_report)
+        self.btn_preview.pack(side="left")
         self._button(actions, "Esporta TXT", SUCCESS, self.export_txt).pack(side="left", padx=(8, 0))
         self.btn_export_pdf = self._button(actions, "Esporta PDF", DANGER, self.export_pdf)
         self.btn_export_pdf.pack(side="left", padx=(8, 0))
         tk.Label(actions, textvariable=self.status_var, bg=BG, fg=TEXT_MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(12, 0))
+        self.progress = ttk.Progressbar(actions, mode="indeterminate", length=120)
 
         preview_wrap = tk.Frame(shell, bg=SURFACE, highlightbackground=BORDER, highlightthickness=1)
         preview_wrap.pack(fill="both", expand=True)
@@ -169,7 +172,7 @@ class ReportMensileWindow(tk.Toplevel):
         if not modules:
             messagebox.showinfo("Moduli richiesti", "Seleziona almeno un modulo.", parent=self)
             return
-        self._working = True
+        self._set_working(True)
         self.status_var.set("Generazione anteprima in corso...")
 
         def worker():
@@ -213,8 +216,7 @@ class ReportMensileWindow(tk.Toplevel):
             messagebox.showinfo("Anteprima richiesta", "Genera prima l'anteprima, poi riesegui l'esportazione PDF.", parent=self)
             return
         report = self.current_report
-        self._working = True
-        self.btn_export_pdf.config(state="disabled", text="PDF in corso...")
+        self._set_working(True, pdf=True)
         self.status_var.set("Esportazione PDF in corso. Puoi lasciare aperta la finestra.")
 
         def worker():
@@ -235,7 +237,7 @@ class ReportMensileWindow(tk.Toplevel):
         return month, year, modules
 
     def _set_report(self, report: MonthlyReport):
-        self._working = False
+        self._set_working(False)
         self.current_report = report
         self.preview.configure(state="normal")
         self.preview.delete("1.0", "end")
@@ -244,14 +246,13 @@ class ReportMensileWindow(tk.Toplevel):
         self.status_var.set("Anteprima aggiornata")
 
     def _generation_failed(self, detail: str):
-        self._working = False
+        self._set_working(False)
         self.status_var.set("Errore generazione report")
         logger.error("Errore generazione report mensile: %s", detail)
         messagebox.showerror("Report non generato", f"Impossibile generare il report.\n\n{detail}", parent=self)
 
     def _pdf_done(self, path, report: MonthlyReport):
-        self._working = False
-        self.btn_export_pdf.config(state="normal", text="Esporta PDF")
+        self._set_working(False)
         log_audit_event(
             "sistema",
             "export_report_pdf",
@@ -263,8 +264,7 @@ class ReportMensileWindow(tk.Toplevel):
         messagebox.showinfo("PDF esportato", f"Report salvato in:\n{path}", parent=self)
 
     def _pdf_failed(self, detail: str):
-        self._working = False
-        self.btn_export_pdf.config(state="normal", text="Esporta PDF")
+        self._set_working(False)
         logger.error("Errore esportazione PDF report mensile: %s", detail)
         log_audit_event(
             "sistema",
@@ -277,3 +277,20 @@ class ReportMensileWindow(tk.Toplevel):
         )
         self.status_var.set("Esportazione PDF non riuscita")
         messagebox.showerror("Esportazione non riuscita", f"Impossibile esportare il PDF.\n\n{detail}", parent=self)
+
+    def _set_working(self, working: bool, pdf: bool = False):
+        self._working = working
+        self.btn_preview.config(state="disabled" if working else "normal")
+        self.btn_export_pdf.config(
+            state="disabled" if working else "normal",
+            text="PDF in corso..." if working and pdf else "Esporta PDF",
+        )
+        if working:
+            if not self.progress.winfo_manager():
+                self.progress.pack(side="left", padx=(10, 0))
+            self.progress.start(12)
+            self.configure(cursor="watch")
+        else:
+            self.progress.stop()
+            self.progress.pack_forget()
+            self.configure(cursor="")

@@ -23,6 +23,7 @@ from core.file_state import FileSnapshot, file_matches_snapshot
 from core.logging_utils import setup_module_logger
 from core.text_utils import display_text, normalize_basic
 from core.workcopies import create_working_copy
+from ui_motion import debounce
 
 try:
     import xlrd  # type: ignore
@@ -38,22 +39,23 @@ APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
 UI_CONFIG = APP_CONFIG["ui"]
 OSPITALITA_UI = UI_CONFIG["modules"]["ospitalita"]
+THEME = UI_CONFIG["theme"]
 
 FOLDER_OSPITALITA = PATHS["ospitalita_network_folder"]
 FILE_PATTERNS = list(PATHS["ospitalita_patterns"])
 WORK_COPY_DIR = resolve_path("data/workcopies/ospitalita")
 
-BG = "#EEF4EF"
-BG2 = "#E1ECE4"
-SURFACE = "#FFFFFF"
-BORDER = "#C9D8CC"
-ACCENT = "#1F6F4A"
-ACCENT_DARK = "#174F35"
-TEXT = "#132018"
-TEXT_MUTED = "#4E6354"
-TEXT_DIM = "#7C8F81"
-WARNING = "#AD6A0F"
-DANGER = "#B43A30"
+BG = THEME["bg"]
+BG2 = THEME["bg2"]
+SURFACE = THEME["surface"]
+BORDER = THEME["border"]
+ACCENT = OSPITALITA_UI["accent"]
+ACCENT_DARK = OSPITALITA_UI["accent_dark"]
+TEXT = THEME["text"]
+TEXT_MUTED = THEME["text_muted"]
+TEXT_DIM = THEME["text_dim"]
+WARNING = THEME["warning"]
+DANGER = THEME["danger"]
 
 LOG_FILE = resolve_path(PATHS["log_file"])
 logger = setup_module_logger(__name__, LOG_FILE)
@@ -526,7 +528,8 @@ class OspitalitaStranieriFrame(tk.Frame):
 
         tk.Label(search_box, text="🔍", bg=SURFACE, font=("Segoe UI", 13), padx=10).pack(side="left")
         self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *_: self.applica_filtro())
+        self._debounced_applica_filtro = debounce(self, 250, self.applica_filtro)
+        self.search_var.trace_add("write", self._debounced_applica_filtro)
         self.search_entry = tk.Entry(
             search_box,
             textvariable=self.search_var,
@@ -844,11 +847,6 @@ class OspitalitaStranieriFrame(tk.Frame):
 
         if not files:
             self.lbl_status.config(text="Nessun file trovato o cartella non raggiungibile.")
-            if errors:
-                messagebox.showwarning(
-                    "Origine dati non disponibile",
-                    f"Impossibile leggere i file da:\n{FOLDER_OSPITALITA}\n\nDettagli:\n" + "\n".join(errors[:8]),
-                )
             self.lbl_tot.config(text="Totale: 0")
             self.lbl_files.config(text="File: 0")
             self.filtered = []

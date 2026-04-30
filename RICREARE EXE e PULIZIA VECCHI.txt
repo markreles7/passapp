@@ -1,0 +1,63 @@
+Certo. Da PowerShell, dentro la cartella del progetto:
+
+cd "C:\Users\marco.muzzica\Documents\New project\passapp"
+
+---
+
+Comando completo: pulizia + ricreazione EXE
+
+Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
+Remove-Item -Force *.spec -ErrorAction SilentlyContinue
+
+python -m compileall .
+python -m pytest -q
+python -m ruff check .
+
+pyinstaller --noconfirm --clean --windowed --onedir --name PassApp main.py
+
+---
+
+L’EXE nuovo lo trovi qui:
+
+.\dist\PassApp\PassApp.exe
+
+---
+
+Per avviarlo subito:
+
+.\dist\PassApp\PassApp.exe
+
+---
+
+Versione debug, consigliata quando hai appena fatto modifiche
+Questa lascia la console aperta, così se crasha vedi l’errore:
+
+Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
+Remove-Item -Force *.spec -ErrorAction SilentlyContinue
+
+python -m compileall .
+python -m pytest -q
+python -m ruff check .
+
+pyinstaller --noconfirm --clean --onedir --name PassApp main.py
+
+.\dist\PassApp\PassApp.exe
+
+---
+
+Quando funziona bene, fai quella finale:
+
+Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
+Remove-Item -Force *.spec -ErrorAction SilentlyContinue
+
+pyinstaller --noconfirm --clean --windowed --onedir --name PassApp main.py
+
+---
+
+Nota importante
+Prima di cancellare dist, assicurati di non averci dentro dati veri tipo:
+
+dist\PassApp\data\
+dist\PassApp\documenti\
+
+Se li hai usati davvero, fai backup prima.

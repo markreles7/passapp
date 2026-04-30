@@ -7,6 +7,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from ui_style import MODULE_COLORS, modern_theme
+
 SOURCE_DIR = Path(__file__).resolve().parent
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys.executable).resolve().parent
@@ -109,6 +111,47 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return merged
 
 
+def _apply_modern_ui_theme(config: dict[str, Any]) -> None:
+    ui = config.setdefault("ui", {})
+    theme = ui.setdefault("theme", {})
+    theme.update(modern_theme())
+
+    modules = ui.setdefault("modules", {})
+    module_labels = {
+        "sopralluoghi": {
+            "title": "Sopralluoghi - Polizia Locale",
+            "menu_title": "Sopralluoghi",
+            "menu_description": "Gestione sopralluoghi collegati alle segnalazioni.",
+            "icon": "SP",
+        },
+        "report": {
+            "title": "Report mensile",
+            "menu_title": "Report mensile",
+            "menu_description": "Riepilogo mensile attivita e moduli.",
+            "icon": "RM",
+        },
+        "contatti": {
+            "title": "Contatti utili",
+            "menu_title": "Contatti utili",
+            "menu_description": "Rubrica uffici, enti e riferimenti operativi.",
+            "icon": "CT",
+        },
+        "audit": {
+            "title": "Storico modifiche",
+            "menu_title": "Storico modifiche",
+            "menu_description": "Consultazione audit trail e operazioni registrate.",
+            "icon": "AU",
+        },
+    }
+    for key, defaults in module_labels.items():
+        modules.setdefault(key, defaults)
+
+    for key, (accent, accent_dark) in MODULE_COLORS.items():
+        if key in modules:
+            modules[key]["accent"] = accent
+            modules[key]["accent_dark"] = accent_dark
+
+
 def load_config(force_reload: bool = False) -> dict[str, Any]:
     global _CONFIG_CACHE, _CONFIG_DIAGNOSTIC
     if _CONFIG_CACHE is not None and not force_reload:
@@ -129,8 +172,19 @@ def load_config(force_reload: bool = False) -> dict[str, Any]:
         _CONFIG_DIAGNOSTIC = f"Configurazione non leggibile in {CONFIG_PATH}: {exc}"
         logger.warning(_CONFIG_DIAGNOSTIC)
 
+    _apply_modern_ui_theme(config)
     _CONFIG_CACHE = config
     return config
+
+
+def save_config(config: dict[str, Any]) -> None:
+    global _CONFIG_CACHE
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(
+        json.dumps(config, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    _CONFIG_CACHE = None
 
 
 def get_config_diagnostic() -> str | None:

@@ -1,4 +1,4 @@
-('C:\\Users\\marco.muzzica\\Documents\\New '
+('C:\\Users\\JohnWick7\\Documents\\New '
  'project\\passapp\\build\\PassApp\\PassApp.pkg',
  {'BINARY': True,
   'DATA': True,
@@ -11,43 +11,40 @@
   'SYMLINK': False},
  [('pyi-contents-directory _internal', '', 'OPTION'),
   ('PYZ-00.pyz',
-   'C:\\Users\\marco.muzzica\\Documents\\New '
+   'C:\\Users\\JohnWick7\\Documents\\New '
    'project\\passapp\\build\\PassApp\\PYZ-00.pyz',
    'PYZ'),
   ('struct',
-   'C:\\Users\\marco.muzzica\\Documents\\New '
+   'C:\\Users\\JohnWick7\\Documents\\New '
    'project\\passapp\\build\\PassApp\\localpycs\\struct.pyc',
    'PYMODULE'),
   ('pyimod01_archive',
-   'C:\\Users\\marco.muzzica\\Documents\\New '
+   'C:\\Users\\JohnWick7\\Documents\\New '
    'project\\passapp\\build\\PassApp\\localpycs\\pyimod01_archive.pyc',
    'PYMODULE'),
   ('pyimod02_importers',
-   'C:\\Users\\marco.muzzica\\Documents\\New '
+   'C:\\Users\\JohnWick7\\Documents\\New '
    'project\\passapp\\build\\PassApp\\localpycs\\pyimod02_importers.pyc',
    'PYMODULE'),
   ('pyimod03_ctypes',
-   'C:\\Users\\marco.muzzica\\Documents\\New '
+   'C:\\Users\\JohnWick7\\Documents\\New '
    'project\\passapp\\build\\PassApp\\localpycs\\pyimod03_ctypes.pyc',
    'PYMODULE'),
   ('pyimod04_pywin32',
-   'C:\\Users\\marco.muzzica\\Documents\\New '
+   'C:\\Users\\JohnWick7\\Documents\\New '
    'project\\passapp\\build\\PassApp\\localpycs\\pyimod04_pywin32.pyc',
    'PYMODULE'),
   ('pyiboot01_bootstrap',
-   'C:\\Users\\marco.muzzica\\Documents\\New '
-   'project\\passapp\\.venv\\Lib\\site-packages\\PyInstaller\\loader\\pyiboot01_bootstrap.py',
+   'C:\\Users\\JohnWick7\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\loader\\pyiboot01_bootstrap.py',
    'PYSOURCE'),
   ('pyi_rth_inspect',
-   'C:\\Users\\marco.muzzica\\Documents\\New '
-   'project\\passapp\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_inspect.py',
+   'C:\\Users\\JohnWick7\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_inspect.py',
    'PYSOURCE'),
   ('pyi_rth__tkinter',
-   'C:\\Users\\marco.muzzica\\Documents\\New '
-   'project\\passapp\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth__tkinter.py',
+   'C:\\Users\\JohnWick7\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth__tkinter.py',
    'PYSOURCE'),
   ('main',
-   'C:\\Users\\marco.muzzica\\Documents\\New project\\passapp\\main.py',
+   'C:\\Users\\JohnWick7\\Documents\\New project\\passapp\\main.py',
    'PYSOURCE')],
  'python312.dll',
  True,

@@ -31,13 +31,14 @@ APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
 UI_CONFIG = APP_CONFIG["ui"]
 THEME = UI_CONFIG["theme"]
+SOPRALLUOGHI_UI = UI_CONFIG["modules"]["sopralluoghi"]
 
 BG = THEME["bg"]
 BG2 = THEME["bg2"]
 SURFACE = THEME["surface"]
 BORDER = THEME["border"]
-ACCENT = UI_CONFIG["modules"]["segnalazioni"]["accent"]
-ACCENT_DARK = UI_CONFIG["modules"]["segnalazioni"]["accent_dark"]
+ACCENT = SOPRALLUOGHI_UI["accent"]
+ACCENT_DARK = SOPRALLUOGHI_UI["accent_dark"]
 SUCCESS = THEME["success"]
 TEXT = THEME["text"]
 TEXT_MUTED = THEME["text_muted"]
@@ -47,6 +48,162 @@ DANGER = THEME["danger"]
 LOG_FILE = resolve_path(PATHS["log_file"])
 SEGNALAZIONI_PDF_DIR = resolve_path(PATHS["segnalazioni_pdf_dir"])
 logger = setup_module_logger(__name__, LOG_FILE)
+
+
+class SopralluoghiOverviewFrame(tk.Frame):
+    def __init__(self, parent, controller=None):
+        super().__init__(parent, bg=BG)
+        self.controller = controller
+        self._items: list[Sopralluogo] = []
+        self.var_filter = tk.StringVar(value="Tutti")
+        self.status_var = tk.StringVar()
+
+        self._setup_styles()
+        self._build_ui()
+        self._load_items()
+
+    def on_show(self):
+        if self.controller is not None:
+            self.controller.title(SOPRALLUOGHI_UI["title"])
+
+    def _setup_styles(self):
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure(
+            "SoprOverview.Treeview",
+            background=SURFACE,
+            fieldbackground=SURFACE,
+            foreground=TEXT,
+            rowheight=30,
+            font=("Segoe UI", 10),
+            bordercolor=BORDER,
+        )
+        style.configure(
+            "SoprOverview.Treeview.Heading",
+            background=BG2,
+            foreground=TEXT_MUTED,
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+        )
+        style.map(
+            "SoprOverview.Treeview",
+            background=[("selected", "#DDEBFF")],
+            foreground=[("selected", TEXT)],
+        )
+
+    def _build_ui(self):
+        shell = tk.Frame(self, bg=BG)
+        shell.pack(fill="both", expand=True, padx=28, pady=24)
+
+        tk.Label(shell, text="Sopralluoghi", bg=BG, fg=TEXT, font=("Segoe UI", 22, "bold")).pack(anchor="w")
+        tk.Label(
+            shell,
+            text="Elenco dei sopralluoghi registrati nelle segnalazioni.",
+            bg=BG,
+            fg=TEXT_MUTED,
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(8, 18))
+
+        card = tk.Frame(shell, bg=SURFACE, highlightbackground=BORDER, highlightthickness=1)
+        card.pack(fill="both", expand=True)
+
+        toolbar = tk.Frame(card, bg=SURFACE)
+        toolbar.pack(fill="x", padx=14, pady=12)
+        tk.Button(
+            toolbar,
+            text="Aggiorna",
+            bg=ACCENT,
+            fg="white",
+            activebackground=ACCENT_DARK,
+            activeforeground="white",
+            relief="flat",
+            cursor="hand2",
+            font=("Segoe UI", 10, "bold"),
+            padx=14,
+            pady=8,
+            command=self._load_items,
+        ).pack(side="left")
+        ttk.Combobox(
+            toolbar,
+            textvariable=self.var_filter,
+            values=("Tutti",) + STATI_SOPRALLUOGO,
+            state="readonly",
+            width=18,
+        ).pack(side="right")
+        tk.Label(toolbar, text="Stato", bg=SURFACE, fg=TEXT_MUTED, font=("Segoe UI", 9)).pack(
+            side="right", padx=(0, 6)
+        )
+        self.var_filter.trace_add("write", lambda *_args: self._refresh_tree())
+
+        table_wrap = tk.Frame(card, bg=SURFACE)
+        table_wrap.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+        vsb = ttk.Scrollbar(table_wrap, orient="vertical")
+        vsb.pack(side="right", fill="y")
+        columns = ("id", "segnalazione", "data", "ora", "luogo", "stato", "operatori")
+        self.tree = ttk.Treeview(
+            table_wrap,
+            columns=columns,
+            show="headings",
+            yscrollcommand=vsb.set,
+            style="SoprOverview.Treeview",
+        )
+        headings = {
+            "id": ("ID", 70),
+            "segnalazione": ("Segnalazione", 110),
+            "data": ("Data", 100),
+            "ora": ("Ora", 70),
+            "luogo": ("Luogo", 220),
+            "stato": ("Stato", 130),
+            "operatori": ("Operatori", 180),
+        }
+        for column, (text, width) in headings.items():
+            self.tree.heading(column, text=text)
+            self.tree.column(column, width=width, anchor="w")
+        self.tree.pack(fill="both", expand=True)
+        vsb.config(command=self.tree.yview)
+
+        tk.Label(
+            card,
+            textvariable=self.status_var,
+            bg=SURFACE,
+            fg=TEXT_MUTED,
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", padx=14, pady=(0, 12))
+
+    def _load_items(self):
+        try:
+            self._items = load_sopralluoghi()
+        except Exception:
+            logger.exception("Errore lettura archivio sopralluoghi")
+            self._items = []
+        self._refresh_tree()
+
+    def _refresh_tree(self):
+        selected_filter = self.var_filter.get()
+        self.tree.delete(*self.tree.get_children())
+        shown = 0
+        for item in self._items:
+            if selected_filter != "Tutti" and item.stato != selected_filter:
+                continue
+            self.tree.insert(
+                "",
+                "end",
+                iid=str(item.id_sopralluogo),
+                values=(
+                    item.id_sopralluogo,
+                    item.segnalazione_id,
+                    item.data_sopralluogo,
+                    item.ora_sopralluogo,
+                    item.luogo,
+                    item.stato,
+                    item.operatori,
+                ),
+            )
+            shown += 1
+        self.status_var.set(f"Sopralluoghi visualizzati: {shown}")
 
 
 class SopralluoghiWindow(tk.Toplevel):

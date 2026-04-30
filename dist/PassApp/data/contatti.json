@@ -18,8 +18,8 @@
         "protocollo"
       ],
       "fonte": "Comune di Pegognaga - Homepage",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-segreteria-protocollo",
@@ -40,8 +40,8 @@
         "comune"
       ],
       "fonte": "Comune di Pegognaga - Ufficio Segreteria e Protocollo",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-polizia-locale",
@@ -62,8 +62,8 @@
         "controllo territorio"
       ],
       "fonte": "Comune di Pegognaga - Ufficio Polizia Locale",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-ambiente-urbanistica",
@@ -83,8 +83,8 @@
         "territorio"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-edilizia-privata",
@@ -104,8 +104,8 @@
         "urbanistica"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-lavori-pubblici",
@@ -126,8 +126,8 @@
         "segnalazioni"
       ],
       "fonte": "Comune di Pegognaga - Ufficio Lavori Pubblici",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-manutenzioni",
@@ -150,8 +150,8 @@
         "idoneita alloggiativa"
       ],
       "fonte": "Comune di Pegognaga - Ufficio Manutenzioni",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-anagrafe-stato-civile-leva",
@@ -172,8 +172,8 @@
         "residenza"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-elettorale",
@@ -192,8 +192,8 @@
         "elezioni"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-commercio-eventi",
@@ -213,8 +213,8 @@
         "autorizzazioni"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-comunicazione-innovazione",
@@ -234,8 +234,8 @@
         "pa"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-segretario-comunale",
@@ -255,8 +255,8 @@
         "amministrativo"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-gestione-entrate",
@@ -275,8 +275,8 @@
         "tributi"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-gestione-spesa",
@@ -296,8 +296,8 @@
         "ragioneria"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-patrimonio",
@@ -317,8 +317,8 @@
         "manutenzione"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-personale",
@@ -337,8 +337,8 @@
         "dipendenti"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-servizi-sociali-scuola",
@@ -359,8 +359,8 @@
         "trasporto sociale"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-tributi",
@@ -380,8 +380,8 @@
         "riscossione"
       ],
       "fonte": "Comune di Pegognaga - Ufficio Tributi",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "pegognaga-centro-culturale",
@@ -401,8 +401,8 @@
         "cultura"
       ],
       "fonte": "Comune di Pegognaga - Uffici telefono e posta elettronica",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "nue-112",
@@ -423,8 +423,8 @@
         "nue"
       ],
       "fonte": "AREU Lombardia / Regione Lombardia",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "continuita-assistenziale-116117",
@@ -444,8 +444,8 @@
         "sanita"
       ],
       "fonte": "ATS Val Padana / ASST Mantova",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "carabinieri-pegognaga",
@@ -465,8 +465,8 @@
         "pegognaga"
       ],
       "fonte": "Comune di Pegognaga / IPA",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "vigilfuoco-mantova",
@@ -487,8 +487,8 @@
         "prevenzione incendi"
       ],
       "fonte": "Corpo Nazionale Vigili del Fuoco - Comando Mantova",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "prefettura-mantova",
@@ -508,8 +508,8 @@
         "mantova"
       ],
       "fonte": "Prefettura di Mantova",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "questura-mantova",
@@ -529,8 +529,8 @@
         "mantova"
       ],
       "fonte": "Polizia di Stato / IPA",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "provincia-mantova-urp",
@@ -550,8 +550,8 @@
         "mantova"
       ],
       "fonte": "Provincia di Mantova",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "mantova-ambiente-tea-numero-verde",
@@ -573,8 +573,8 @@
         "mantova ambiente"
       ],
       "fonte": "Mantova Ambiente / Tea",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "mantova-ambiente-centro-raccolta-pegognaga",
@@ -595,8 +595,8 @@
         "ambiente"
       ],
       "fonte": "Mantova Ambiente - Comune di Pegognaga",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "antica-farmacia-mori",
@@ -616,8 +616,8 @@
         "pegognaga"
       ],
       "fonte": "Comune di Pegognaga - Farmacie",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     },
     {
       "id": "farmacia-mancinelli",
@@ -638,8 +638,8 @@
         "pegognaga"
       ],
       "fonte": "Comune di Pegognaga / Ordine Farmacisti MN",
-      "data_creazione": "2026-04-29 12:34:55",
-      "data_ultima_modifica": "2026-04-29 12:34:55"
+      "data_creazione": "2026-04-30 23:30:36",
+      "data_ultima_modifica": "2026-04-30 23:30:36"
     }
   ]
 }

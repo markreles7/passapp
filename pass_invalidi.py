@@ -25,6 +25,7 @@ from core.file_state import FileSnapshot, file_matches_snapshot
 from core.logging_utils import setup_module_logger
 from core.text_utils import normalize_for_match
 from core.workcopies import create_working_copy
+from ui_motion import debounce
 
 try:
     import openpyxl
@@ -298,7 +299,8 @@ class PassInvalidiFrame(tk.Frame):
                  font=("Segoe UI", 13), padx=10).pack(side="left")
 
         self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *_: self.applica_filtro())
+        self._debounced_applica_filtro = debounce(self, 250, self.applica_filtro)
+        self.search_var.trace_add("write", self._debounced_applica_filtro)
 
         self.entry = tk.Entry(search_container, textvariable=self.search_var,
                               font=("Segoe UI", 13), relief="flat",
@@ -681,13 +683,12 @@ class PassInvalidiFrame(tk.Frame):
             self.year_combo.configure(values=("Tutti",))
             self.year_var.set("Tutti")
             self._last_year_value = "Tutti"
-            msg = (
-                f"Nessun file trovato in:\n{CARTELLA_RETE}\n\n"
-                f"Verifica che il disco R: sia collegato e che esistano\n"
-                f"file con nome: {PATTERN_FILE}"
+            self.lbl_status.config(
+                text=(
+                    "Nessun file configurato o trovato. "
+                    "Imposta i percorsi in Configurazione per caricare i dati."
+                )
             )
-            messagebox.showwarning("Cartella non trovata", msg)
-            self.lbl_status.config(text="Nessun file trovato: controlla disco R:")
             return
 
         if errori:

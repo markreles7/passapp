@@ -21,17 +21,19 @@ from core.contatti import (
     validate_contatto,
 )
 from core.logging_utils import setup_module_logger
+from ui_motion import debounce
 
 APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
 THEME = APP_CONFIG["ui"]["theme"]
+CONTATTI_UI = APP_CONFIG["ui"]["modules"]["contatti"]
 
 BG = THEME["bg"]
 BG2 = THEME["bg2"]
 SURFACE = THEME["surface"]
 BORDER = THEME["border"]
-ACCENT = THEME["accent"]
-ACCENT_DARK = THEME["accent_dark"]
+ACCENT = CONTATTI_UI["accent"]
+ACCENT_DARK = CONTATTI_UI["accent_dark"]
 SUCCESS = THEME["success"]
 TEXT = THEME["text"]
 TEXT_MUTED = THEME["text_muted"]
@@ -41,14 +43,13 @@ LOG_FILE = resolve_path(PATHS["log_file"])
 logger = setup_module_logger(__name__, LOG_FILE)
 
 
-class ContattiUtiliWindow(tk.Toplevel):
-    def __init__(self, parent):
+class ContattiUtiliFrame(tk.Frame):
+    def __init__(self, parent, controller=None, show_close_button=False, close_command=None):
         super().__init__(parent)
-        self.title("Contatti utili")
+        self.controller = controller
+        self.show_close_button = show_close_button
+        self.close_command = close_command
         self.configure(bg=BG)
-        self.geometry("1120x680")
-        self.minsize(900, 520)
-        self.transient(parent.winfo_toplevel())
 
         self.contatti: list[Contatto] = []
         self.selected_id: str | None = None
@@ -70,13 +71,18 @@ class ContattiUtiliWindow(tk.Toplevel):
             "fonte": tk.StringVar(),
         }
 
-        self.var_search.trace_add("write", lambda *_: self._refresh_tree())
-        self.var_filter_categoria.trace_add("write", lambda *_: self._refresh_tree())
-        self.var_filter_tag.trace_add("write", lambda *_: self._refresh_tree())
+        self._debounced_refresh_tree = debounce(self, 250, self._refresh_tree)
+        self.var_search.trace_add("write", self._debounced_refresh_tree)
+        self.var_filter_categoria.trace_add("write", self._debounced_refresh_tree)
+        self.var_filter_tag.trace_add("write", self._debounced_refresh_tree)
 
         self._setup_styles()
         self._build_ui()
         self._load()
+
+    def on_show(self):
+        if self.controller is not None:
+            self.controller.title("Contatti utili - Polizia Locale")
 
     def _setup_styles(self):
         style = ttk.Style(self)
@@ -108,22 +114,32 @@ class ContattiUtiliWindow(tk.Toplevel):
 
         header = tk.Frame(shell, bg=SURFACE, highlightbackground=BORDER, highlightthickness=1)
         header.pack(fill="x")
-        tk.Label(header, text="Contatti utili", bg=SURFACE, fg=TEXT, font=("Segoe UI", 16, "bold")).pack(
-            side="left", padx=16, pady=12
+        title_box = tk.Frame(header, bg=SURFACE)
+        title_box.pack(side="left", fill="x", expand=True, padx=16, pady=12)
+        tk.Label(title_box, text="Contatti utili / Uffici", bg=SURFACE, fg=TEXT, font=("Segoe UI", 16, "bold")).pack(
+            anchor="w"
         )
-        tk.Button(
-            header,
-            text="Chiudi",
-            bg=BG2,
+        tk.Label(
+            title_box,
+            text="Rubrica operativa per uffici, enti e riferimenti comunali.",
+            bg=SURFACE,
             fg=TEXT_MUTED,
-            font=("Segoe UI", 10, "bold"),
-            relief="flat",
-            cursor="hand2",
-            activebackground=BORDER,
-            padx=16,
-            pady=9,
-            command=self.destroy,
-        ).pack(side="right", padx=16, pady=12)
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(3, 0))
+        if self.show_close_button:
+            tk.Button(
+                header,
+                text="Chiudi",
+                bg=BG2,
+                fg=TEXT_MUTED,
+                font=("Segoe UI", 10, "bold"),
+                relief="flat",
+                cursor="hand2",
+                activebackground=BORDER,
+                padx=16,
+                pady=9,
+                command=self.close_command or self.destroy,
+            ).pack(side="right", padx=16, pady=12)
 
         split = tk.PanedWindow(shell, orient="horizontal", sashrelief="flat", bd=0, bg=BG, sashwidth=8)
         split.pack(fill="both", expand=True, pady=(12, 0))
@@ -407,3 +423,15 @@ class ContattiUtiliWindow(tk.Toplevel):
             except OSError:
                 pass
         messagebox.showinfo("Esportazione completata", f"Contatti esportati in:\n{out_path}", parent=self)
+
+
+class ContattiUtiliWindow(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Contatti utili")
+        self.configure(bg=BG)
+        self.geometry("1120x680")
+        self.minsize(900, 520)
+        self.transient(parent.winfo_toplevel())
+        frame = ContattiUtiliFrame(self, show_close_button=True, close_command=self.destroy)
+        frame.pack(fill="both", expand=True)

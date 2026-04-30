@@ -20,6 +20,7 @@ from core.logging_utils import setup_module_logger
 from core.powershell import check_office_com
 from fascicoli import FascicoloWindow, fascicolo_status_text
 from sopralluoghi import SopralluoghiWindow
+from ui_motion import debounce
 
 APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
@@ -281,8 +282,9 @@ class SegnalazioniFrame(tk.Frame):
 
         self.search_in_corso = tk.StringVar()
         self.search_archiviate = tk.StringVar()
-        self.search_in_corso.trace_add("write", lambda *_: self._refresh_trees())
-        self.search_archiviate.trace_add("write", lambda *_: self._refresh_trees())
+        self._debounced_refresh_trees = debounce(self, 250, self._refresh_trees)
+        self.search_in_corso.trace_add("write", self._debounced_refresh_trees)
+        self.search_archiviate.trace_add("write", self._debounced_refresh_trees)
         self.filter_categoria = tk.StringVar(value="Tutte")
         self.filter_priorita = tk.StringVar(value="Tutte")
         self.filter_stato_lavorazione = tk.StringVar(value="Tutti")
@@ -295,7 +297,7 @@ class SegnalazioniFrame(tk.Frame):
             self.filter_solo_urgenti,
             self.filter_solo_aperte,
         ):
-            var.trace_add("write", lambda *_: self._refresh_trees())
+            var.trace_add("write", self._debounced_refresh_trees)
 
         self.var_numero = tk.StringVar()
         self.var_anno = tk.StringVar()
