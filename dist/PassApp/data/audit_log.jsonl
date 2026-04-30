@@ -1,2 +1,0 @@
-{"timestamp":"2026-04-30T23:30:36","module":"contatti","action":"seed","entity_type":"contatti","entity_id":null,"description":"Importati 30 contatti iniziali.","result":"success","error":null,"operator":null,"extra":null}
-{"timestamp":"2026-04-30T23:30:51","module":"sistema","action":"diagnostics","entity_type":"system","entity_id":null,"description":"Diagnostica configurazione eseguita","result":"success","error":null,"operator":null,"extra":null}
