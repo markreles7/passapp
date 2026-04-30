@@ -5,12 +5,13 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from app_config import load_config, resolve_path
 from core.audit import log_audit_event
-from core.fascicoli import add_attachment
+from core.fascicoli import add_attachment, list_attachments, relative_to_path
 from core.logging_utils import setup_module_logger
 from core.powershell import check_office_com
 from core.sopralluoghi import (
@@ -191,12 +192,8 @@ class SopralluoghiWindow(tk.Toplevel):
         self._button(actions, "Nuovo", ACCENT, self._start_new).pack(side="left")
         self._button(actions, "Modifica", "#355C7D", self._load_selected_into_form).pack(side="left", padx=(8, 0))
         self._button(actions, "Elimina", DANGER, self._delete_selected).pack(side="left", padx=(8, 0))
-        self._button(actions, "Genera scheda sopralluogo", SUCCESS, self._export_selected_pdf).pack(side="left", padx=(8, 0))
-        self._button(actions, "Foto sopr.", ACCENT, lambda: self._add_selected_attachment("foto")).pack(side="left", padx=(8, 0))
-        self._button(actions, "Allegato sopr.", "#6A4C93", lambda: self._add_selected_attachment("allegato")).pack(
-            side="left", padx=(8, 0)
-        )
         self._button(actions, "Mostra allegati", BG2, self._show_fascicolo, fg=TEXT_MUTED).pack(side="left", padx=(8, 0))
+        self._button(actions, "Genera scheda sopralluogo", SUCCESS, self._export_selected_pdf).pack(side="left", padx=(8, 0))
 
     def _build_form_panel(self, parent):
         tk.Label(parent, text="Dettaglio sopralluogo", bg=SURFACE, fg=TEXT, font=("Segoe UI", 12, "bold")).pack(
@@ -600,6 +597,35 @@ function Add-Info {
     $Selection.TypeParagraph()
 }
 
+function Add-PageBreak {
+    param([object]$Selection)
+    $Selection.InsertBreak(7)
+}
+
+function Add-Photo {
+    param([object]$Selection, [object]$Word, [object]$Photo)
+    if (-not (Test-Path ([string]$Photo.path))) { return }
+    try {
+        $shape = $Selection.InlineShapes.AddPicture([string]$Photo.path, $false, $true)
+        $maxWidth = $Word.CentimetersToPoints(15.5)
+        $maxHeight = $Word.CentimetersToPoints(9)
+        if ($shape.Width -gt $maxWidth) {
+            $ratio = $maxWidth / $shape.Width
+            $shape.Width = $maxWidth
+            $shape.Height = $shape.Height * $ratio
+        }
+        if ($shape.Height -gt $maxHeight) {
+            $ratio = $maxHeight / $shape.Height
+            $shape.Height = $maxHeight
+            $shape.Width = $shape.Width * $ratio
+        }
+        $Selection.TypeParagraph()
+        Add-Paragraph -Selection $Selection -Text ("Foto: " + [string]$Photo.nome_file + " - " + [string]$Photo.origine) -Size 8 -SpaceAfter 6
+    } catch {
+        Add-Paragraph -Selection $Selection -Text ("Foto non inserita: " + [string]$Photo.nome_file) -Size 8 -SpaceAfter 4
+    }
+}
+
 $word = $null
 $doc = $null
 try {
@@ -615,12 +641,13 @@ try {
 
     Add-Paragraph -Selection $sel -Text "COMUNE DI PEGOGNAGA" -Size 12 -Bold $true -Alignment 1 -SpaceAfter 1
     Add-Paragraph -Selection $sel -Text "Polizia Locale" -Size 10 -Bold $true -Alignment 1 -SpaceAfter 2
-    Add-Paragraph -Selection $sel -Text "SCHEDA SOPRALLUOGO" -Size 13 -Bold $true -Alignment 1 -SpaceAfter 8
+    Add-Paragraph -Selection $sel -Text "VERBALE DI SOPRALLUOGO" -Size 13 -Bold $true -Alignment 1 -SpaceAfter 8
 
     Add-Paragraph -Selection $sel -Text "Dati segnalazione" -Size 10 -Bold $true -SpaceAfter 2
     Add-Info -Selection $sel -Label "Segnalazione n.: " -Value $payload.segnalazione_numero
     Add-Info -Selection $sel -Label "Data ricezione: " -Value $payload.segnalazione_data
     Add-Info -Selection $sel -Label "Segnalante: " -Value $payload.segnalante
+    Add-Info -Selection $sel -Label "Luogo segnalato: " -Value $payload.indirizzo_segnalazione
     Add-Info -Selection $sel -Label "Oggetto: " -Value $payload.descrizione
     Add-Paragraph -Selection $sel -Text "" -SpaceAfter 4
 
@@ -635,6 +662,34 @@ try {
     Add-Info -Selection $sel -Label "Foto/allegati: " -Value $payload.foto
     Add-Info -Selection $sel -Label "Ulteriori atti: " -Value $payload.atti
     Add-Info -Selection $sel -Label "Ufficio destinatario: " -Value $payload.ufficio
+    Add-Paragraph -Selection $sel -Text "" -SpaceAfter 4
+
+    Add-Paragraph -Selection $sel -Text "Verbale operativo" -Size 10 -Bold $true -SpaceAfter 2
+    Add-Paragraph -Selection $sel -Text ("In data " + $payload.data_ora + " l'operatore/gli operatori indicati hanno effettuato il sopralluogo presso il luogo sopra riportato, in relazione alla segnalazione n. " + $payload.segnalazione_numero + ".") -Size 9 -SpaceAfter 3
+    Add-Paragraph -Selection $sel -Text ("Esito sintetico: " + $payload.esito) -Size 9 -SpaceAfter 3
+    Add-Paragraph -Selection $sel -Text ("Note operative: " + $payload.note) -Size 9 -SpaceAfter 3
+    Add-Paragraph -Selection $sel -Text ("Necessita di ulteriori atti: " + $payload.atti + ". Ufficio destinatario: " + $payload.ufficio + ".") -Size 9 -SpaceAfter 3
+
+    Add-PageBreak -Selection $sel
+    Add-Paragraph -Selection $sel -Text "SCHEDA FOTOGRAFICA" -Size 12 -Bold $true -Alignment 1 -SpaceAfter 8
+    $photos = @($payload.foto_items)
+    if ($photos.Count -eq 0) {
+        Add-Paragraph -Selection $sel -Text "Nessuna foto presente nel fascicolo digitale al momento della generazione." -Size 9 -SpaceAfter 3
+    } else {
+        foreach ($photo in $photos) {
+            Add-Photo -Selection $sel -Word $word -Photo $photo
+        }
+    }
+
+    $documents = @($payload.documenti)
+    if ($documents.Count -gt 0) {
+        Add-PageBreak -Selection $sel
+        Add-Paragraph -Selection $sel -Text "DOCUMENTI E ALLEGATI PRESENTI NEL FASCICOLO" -Size 12 -Bold $true -Alignment 1 -SpaceAfter 8
+        foreach ($document in $documents) {
+            Add-Paragraph -Selection $sel -Text ("- " + [string]$document.nome_file + " (" + [string]$document.tipo + ", " + [string]$document.origine + ")") -Size 9 -SpaceAfter 2
+        }
+        Add-Paragraph -Selection $sel -Text "I documenti sono elencati come allegati presenti nel fascicolo digitale; non vengono incorporati nel PDF del verbale." -Size 8 -SpaceAfter 2
+    }
 
     $doc.ExportAsFixedFormat($PdfPath, 17)
     $doc.Close($false)
@@ -675,18 +730,35 @@ finally {
         if not output_pdf.exists():
             raise RuntimeError("Il file PDF non e stato creato.")
 
-    def _build_pdf_payload(self, item: Sopralluogo) -> dict[str, str]:
+    def _build_pdf_payload(self, item: Sopralluogo) -> dict[str, Any]:
         data_seg = "/".join(
             part for part in (self.segnalazione.giorno, self.segnalazione.mese, self.segnalazione.anno) if part
         )
         data_ora = item.data_sopralluogo
         if item.ora_sopralluogo:
             data_ora = f"{data_ora} - {item.ora_sopralluogo}"
+        attachments = list_attachments(self.segnalazione.numero_progressivo)
+        photos = []
+        documents = []
+        for attachment in attachments:
+            path = relative_to_path(attachment.relative_path)
+            entry = {
+                "nome_file": attachment.nome_file,
+                "path": str(path),
+                "tipo": attachment.tipo,
+                "origine": self._attachment_origin_text(attachment),
+                "descrizione": attachment.descrizione,
+            }
+            if attachment.tipo == "foto" and path.exists():
+                photos.append(entry)
+            elif path.exists():
+                documents.append(entry)
         return {
             "segnalazione_numero": str(self.segnalazione.numero_progressivo),
             "segnalazione_data": self._value_or_dash(data_seg),
             "segnalante": self._value_or_dash(self.segnalazione.nominativo),
             "descrizione": self._value_or_dash(self.segnalazione.descrizione_segnalazione),
+            "indirizzo_segnalazione": self._value_or_dash(self.segnalazione.indirizzo),
             "id_sopralluogo": str(item.id_sopralluogo),
             "stato": self._value_or_dash(item.stato),
             "data_ora": self._value_or_dash(data_ora),
@@ -697,7 +769,16 @@ finally {
             "foto": "Si" if item.presenza_foto_allegati else "No",
             "atti": "Si" if item.ulteriori_atti else "No",
             "ufficio": self._value_or_dash(item.ufficio_destinatario),
+            "foto_items": photos,
+            "documenti": documents,
         }
+
+    @staticmethod
+    def _attachment_origin_text(attachment) -> str:
+        origin = str(attachment.origine or "segnalazione")
+        if attachment.sopralluogo_id:
+            origin = f"{origin} #{attachment.sopralluogo_id}"
+        return origin
 
     def _is_word_available(self) -> bool:
         if self._word_available is None:

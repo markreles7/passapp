@@ -1,0 +1,66 @@
+{
+  "fascicoli": [
+    {
+      "segnalazione_id": 2,
+      "relative_path": "documenti/fascicoli_segnalazioni/SEG-2026-0002_via_parla_troppo_1_ci_ha_segnalato_che_c_un_capriolo_bloccato",
+      "data_creazione": "2026-04-30 08:46:58"
+    }
+  ],
+  "allegati": [
+    {
+      "id_allegato": 1,
+      "segnalazione_id": 2,
+      "relative_path": "documenti/fascicoli_segnalazioni/SEG-2026-0002_via_parla_troppo_1_ci_ha_segnalato_che_c_un_capriolo_bloccato/foto/thorx3.jpg",
+      "nome_file": "thorx3.jpg",
+      "tipo": "foto",
+      "origine": "sopralluogo",
+      "data_aggiunta": "2026-04-30 08:46:58",
+      "sopralluogo_id": 1,
+      "descrizione": ""
+    },
+    {
+      "id_allegato": 2,
+      "segnalazione_id": 2,
+      "relative_path": "documenti/fascicoli_segnalazioni/SEG-2026-0002_via_parla_troppo_1_ci_ha_segnalato_che_c_un_capriolo_bloccato/allegati/pass_invalidi.docx",
+      "nome_file": "pass_invalidi.docx",
+      "tipo": "allegato",
+      "origine": "sopralluogo",
+      "data_aggiunta": "2026-04-30 08:47:28",
+      "sopralluogo_id": 1,
+      "descrizione": ""
+    },
+    {
+      "id_allegato": 3,
+      "segnalazione_id": 2,
+      "relative_path": "documenti/fascicoli_segnalazioni/SEG-2026-0002_via_parla_troppo_1_ci_ha_segnalato_che_c_un_capriolo_bloccato/foto/h_t_4.jpg",
+      "nome_file": "h_t_4.jpg",
+      "tipo": "foto",
+      "origine": "segnalazione",
+      "data_aggiunta": "2026-04-30 08:47:43",
+      "sopralluogo_id": null,
+      "descrizione": ""
+    },
+    {
+      "id_allegato": 4,
+      "segnalazione_id": 2,
+      "relative_path": "documenti/fascicoli_segnalazioni/SEG-2026-0002_via_parla_troppo_1_ci_ha_segnalato_che_c_un_capriolo_bloccato/foto/harley_1.jpg",
+      "nome_file": "harley_1.jpg",
+      "tipo": "foto",
+      "origine": "segnalazione",
+      "data_aggiunta": "2026-04-30 08:47:47",
+      "sopralluogo_id": null,
+      "descrizione": ""
+    },
+    {
+      "id_allegato": 5,
+      "segnalazione_id": 2,
+      "relative_path": "documenti/fascicoli_segnalazioni/SEG-2026-0002_via_parla_troppo_1_ci_ha_segnalato_che_c_un_capriolo_bloccato/sopralluoghi/sopralluogo_2_1.pdf",
+      "nome_file": "sopralluogo_2_1.pdf",
+      "tipo": "scheda_sopralluogo",
+      "origine": "sopralluogo",
+      "data_aggiunta": "2026-04-30 08:51:47",
+      "sopralluogo_id": 1,
+      "descrizione": ""
+    }
+  ]
+}

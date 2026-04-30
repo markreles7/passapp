@@ -126,7 +126,8 @@ class ReportMensileWindow(tk.Toplevel):
         actions.pack(fill="x", pady=(0, 10))
         self._button(actions, "Anteprima report", ACCENT, self.preview_report).pack(side="left")
         self._button(actions, "Esporta TXT", SUCCESS, self.export_txt).pack(side="left", padx=(8, 0))
-        self._button(actions, "Esporta PDF", DANGER, self.export_pdf).pack(side="left", padx=(8, 0))
+        self.btn_export_pdf = self._button(actions, "Esporta PDF", DANGER, self.export_pdf)
+        self.btn_export_pdf.pack(side="left", padx=(8, 0))
         tk.Label(actions, textvariable=self.status_var, bg=BG, fg=TEXT_MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(12, 0))
 
         preview_wrap = tk.Frame(shell, bg=SURFACE, highlightbackground=BORDER, highlightthickness=1)
@@ -205,26 +206,27 @@ class ReportMensileWindow(tk.Toplevel):
         messagebox.showinfo("TXT esportato", f"Report salvato in:\n{path}", parent=self)
 
     def export_pdf(self):
+        if self._working:
+            return
         if self.current_report is None:
             self.preview_report()
             messagebox.showinfo("Anteprima richiesta", "Genera prima l'anteprima, poi riesegui l'esportazione PDF.", parent=self)
             return
-        try:
-            path = export_monthly_report_pdf(self.current_report)
-        except Exception as exc:
-            logger.exception("Errore esportazione PDF report mensile")
-            log_audit_event("sistema", "export_report_pdf", "report_mensile", None, "Esportazione PDF report mensile non riuscita", result="error", error=str(exc))
-            messagebox.showerror("Esportazione non riuscita", f"Impossibile esportare il PDF.\n\n{exc}", parent=self)
-            return
-        log_audit_event(
-            "sistema",
-            "export_report_pdf",
-            "report_mensile",
-            f"{self.current_report.year}-{self.current_report.month:02d}",
-            "Esportato report mensile PDF",
-        )
-        self.status_var.set(f"PDF esportato: {path}")
-        messagebox.showinfo("PDF esportato", f"Report salvato in:\n{path}", parent=self)
+        report = self.current_report
+        self._working = True
+        self.btn_export_pdf.config(state="disabled", text="PDF in corso...")
+        self.status_var.set("Esportazione PDF in corso. Puoi lasciare aperta la finestra.")
+
+        def worker():
+            try:
+                path = export_monthly_report_pdf(report)
+            except Exception as exc:
+                detail = str(exc)
+                self.after(0, lambda: self._pdf_failed(detail))
+                return
+            self.after(0, lambda: self._pdf_done(path, report))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _selection(self) -> tuple[int, int, tuple[str, ...]]:
         month = int(self.var_month.get().split(" ", 1)[0])
@@ -246,3 +248,32 @@ class ReportMensileWindow(tk.Toplevel):
         self.status_var.set("Errore generazione report")
         logger.error("Errore generazione report mensile: %s", detail)
         messagebox.showerror("Report non generato", f"Impossibile generare il report.\n\n{detail}", parent=self)
+
+    def _pdf_done(self, path, report: MonthlyReport):
+        self._working = False
+        self.btn_export_pdf.config(state="normal", text="Esporta PDF")
+        log_audit_event(
+            "sistema",
+            "export_report_pdf",
+            "report_mensile",
+            f"{report.year}-{report.month:02d}",
+            "Esportato report mensile PDF",
+        )
+        self.status_var.set(f"PDF esportato: {path}")
+        messagebox.showinfo("PDF esportato", f"Report salvato in:\n{path}", parent=self)
+
+    def _pdf_failed(self, detail: str):
+        self._working = False
+        self.btn_export_pdf.config(state="normal", text="Esporta PDF")
+        logger.error("Errore esportazione PDF report mensile: %s", detail)
+        log_audit_event(
+            "sistema",
+            "export_report_pdf",
+            "report_mensile",
+            None,
+            "Esportazione PDF report mensile non riuscita",
+            result="error",
+            error=detail,
+        )
+        self.status_var.set("Esportazione PDF non riuscita")
+        messagebox.showerror("Esportazione non riuscita", f"Impossibile esportare il PDF.\n\n{detail}", parent=self)

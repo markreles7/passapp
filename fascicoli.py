@@ -8,6 +8,7 @@ from app_config import load_config, resolve_path
 from core.audit import log_audit_event
 from core.fascicoli import (
     add_attachment,
+    delete_attachment,
     ensure_fascicolo,
     fascicolo_exists,
     generate_photo_sheet_html,
@@ -116,12 +117,20 @@ class FascicoloWindow(tk.Toplevel):
 
         actions = tk.Frame(shell, bg=BG)
         actions.pack(fill="x", pady=(12, 8))
-        self._button(actions, "Crea fascicolo", ACCENT, self._create_fascicolo).pack(side="left")
-        self._button(actions, "Apri fascicolo", "#355C7D", self._open_fascicolo).pack(side="left", padx=(8, 0))
+        tk.Label(
+            actions,
+            text="Ordine consigliato: aggiungi foto, aggiungi allegati, genera scheda fotografica, poi apri/verifica il fascicolo.",
+            bg=BG,
+            fg=TEXT_MUTED,
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(0, 10))
         self._button(actions, "Aggiungi foto", SUCCESS, lambda: self._add_files("foto")).pack(side="left", padx=(8, 0))
         self._button(actions, "Aggiungi allegato", "#6A4C93", lambda: self._add_files("allegato")).pack(side="left", padx=(8, 0))
         self._button(actions, "Apri file", BG2, self._open_selected, fg=TEXT_MUTED).pack(side="left", padx=(8, 0))
+        self._button(actions, "Elimina allegato", DANGER, self._delete_selected).pack(side="left", padx=(8, 0))
         self._button(actions, "Genera scheda fotografica", DANGER, self._generate_photo_sheet).pack(side="left", padx=(8, 0))
+        self._button(actions, "Apri fascicolo", "#355C7D", self._open_fascicolo).pack(side="left", padx=(8, 0))
+        self._button(actions, "Crea/Verifica fascicolo", ACCENT, self._create_fascicolo).pack(side="left", padx=(8, 0))
 
         table_wrap = tk.Frame(shell, bg=SURFACE, highlightbackground=BORDER, highlightthickness=1)
         table_wrap.pack(fill="both", expand=True)
@@ -264,6 +273,44 @@ class FascicoloWindow(tk.Toplevel):
         except Exception as exc:
             logger.exception("Errore apertura allegato: %s", item.relative_path)
             messagebox.showerror("Apertura non riuscita", f"Impossibile aprire il file.\n\n{exc}", parent=self)
+
+    def _delete_selected(self):
+        item = self._selected_attachment()
+        if item is None:
+            messagebox.showinfo("Selezione richiesta", "Seleziona un allegato da eliminare.", parent=self)
+            return
+        if not messagebox.askyesno(
+            "Conferma eliminazione",
+            f"Vuoi eliminare dal fascicolo il file:\n{item.nome_file}?\n\n"
+            "Il file copiato nel fascicolo verra rimosso.",
+            parent=self,
+        ):
+            return
+        try:
+            removed = delete_attachment(self.segnalazione.numero_progressivo, item.id_allegato)
+        except Exception as exc:
+            logger.exception("Errore eliminazione allegato fascicolo: %s", item.relative_path)
+            log_audit_event(
+                "segnalazioni",
+                "delete_attachment",
+                "fascicolo",
+                str(self.segnalazione.numero_progressivo),
+                "Eliminazione allegato/foto non riuscita",
+                result="error",
+                error=str(exc),
+            )
+            messagebox.showerror("Eliminazione non riuscita", f"Impossibile eliminare l'allegato.\n\n{exc}", parent=self)
+            return
+        log_audit_event(
+            "segnalazioni",
+            "delete_attachment",
+            "fascicolo",
+            str(self.segnalazione.numero_progressivo),
+            "Eliminato allegato/foto dal fascicolo",
+            extra={"tipo": removed.tipo, "nome_file": removed.nome_file},
+        )
+        self._refresh()
+        messagebox.showinfo("Allegato eliminato", "L'allegato e stato eliminato dal fascicolo.", parent=self)
 
     def _generate_photo_sheet(self):
         try:

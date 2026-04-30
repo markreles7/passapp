@@ -356,6 +356,22 @@ class PassInvalidiFrame(tk.Frame):
         )
         self.btn_edit.pack(side="left", padx=(8, 0))
 
+        self.btn_delete = tk.Button(
+            search_row,
+            text="Elimina selezionato",
+            bg=DANGER,
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground="#8F2E27",
+            padx=14,
+            pady=10,
+            command=self.elimina_selezionato,
+            state="disabled",
+        )
+        self.btn_delete.pack(side="left", padx=(8, 0))
+
         self.btn_save_changes = tk.Button(
             search_row,
             text="SALVA MODIFICHE",
@@ -571,7 +587,7 @@ class PassInvalidiFrame(tk.Frame):
         self._last_year_value = selected
 
     def _refresh_summary_stats(self):
-        records = list(self.all_records)
+        records = [rec for rec in self.all_records if not rec.get("_deleted")]
         n_scad = sum(1 for r in records if get_status(r.get("scadenza")) == "expired")
         n_soon = sum(1 for r in records if get_status(r.get("scadenza")) == "soon")
         self.lbl_totale.config(text=f"Totale: {len(records)}")
@@ -599,6 +615,7 @@ class PassInvalidiFrame(tk.Frame):
         self._prepare_working_copy()
         self.btn_new.config(state="normal" if self._working_copy_file else "disabled")
         self.btn_edit.config(state="normal" if self._working_copy_file else "disabled")
+        self.btn_delete.config(state="normal" if self._working_copy_file else "disabled")
         self._refresh_summary_stats()
 
     def _on_year_change(self, _event=None):
@@ -693,6 +710,7 @@ class PassInvalidiFrame(tk.Frame):
             self.lbl_scadenza.config(text="In scad.: 0")
             self.btn_new.config(state="disabled")
             self.btn_edit.config(state="disabled")
+            self.btn_delete.config(state="disabled")
             self.btn_save_changes.config(state="disabled")
             self.year_combo.configure(values=("Tutti",))
             self.year_var.set("Tutti")
@@ -730,6 +748,7 @@ class PassInvalidiFrame(tk.Frame):
         )
         self.btn_new.config(state="normal" if self._working_copy_file else "disabled")
         self.btn_edit.config(state="normal" if self._working_copy_file else "disabled")
+        self.btn_delete.config(state="normal" if self._working_copy_file else "disabled")
         self.btn_save_changes.config(state="disabled")
         self.applica_filtro()
 
@@ -740,6 +759,8 @@ class PassInvalidiFrame(tk.Frame):
 
         risultati = []
         for r in self.all_records:
+            if r.get("_deleted"):
+                continue
             nome_lower = r["nome"].lower()
             if parts and not all(p in nome_lower for p in parts):
                 continue
@@ -1108,6 +1129,12 @@ finally {
                 if target is not None and isinstance(original, dict):
                     target.clear()
                     target.update(original)
+            elif mode == "delete_existing":
+                target = self._find_record_by_numero(numero, source_name=source or None)
+                original = pending.get("original_snapshot")
+                if target is not None and isinstance(original, dict):
+                    target.clear()
+                    target.update(original)
             elif mode == "append":
                 self.all_records = [
                     rec for rec in self.all_records
@@ -1134,6 +1161,58 @@ finally {
             messagebox.showinfo("Nessuna selezione", "Seleziona un nominativo da modificare.")
             return
         self.nuovo_nominativo(record_to_edit=record)
+
+    def elimina_selezionato(self, _event=None):
+        if not self._working_copy_file:
+            messagebox.showwarning(
+                "Eliminazione non disponibile",
+                "Per eliminare un record seleziona un anno specifico.",
+            )
+            return
+        record = self._selected_record()
+        if record is None:
+            messagebox.showinfo("Nessuna selezione", "Seleziona un nominativo da eliminare.")
+            return
+        numero = self._record_numero_int(record)
+        if numero is None:
+            messagebox.showerror("Errore record", "Numero progressivo non valido.")
+            return
+        nome = str(record.get("nome", "")).strip() or f"n. {numero}"
+        if not messagebox.askyesno(
+            "Conferma eliminazione",
+            f"Vuoi eliminare il pass invalidi di {nome}?\n\n"
+            "L'eliminazione verra applicata al file Excel solo con 'SALVA MODIFICHE'.",
+            parent=self,
+        ):
+            return
+
+        source_name = str(record.get("source", "")).strip() or self._current_source_name()
+        original_snapshot = dict(record)
+        record["_pending"] = True
+        record["_deleted"] = True
+        self._upsert_pending_record(
+            {
+                "mode": "delete_existing",
+                "source": source_name,
+                "numero": numero,
+                "original_snapshot": original_snapshot,
+            }
+        )
+        log_audit_event(
+            "pass_invalidi",
+            "delete_pending",
+            "pass_invalidi",
+            str(numero),
+            "Eliminazione pass invalidi registrata nella copia di lavoro",
+            extra={"source": source_name},
+        )
+        self.btn_save_changes.config(state="normal")
+        self.applica_filtro()
+        messagebox.showinfo(
+            "Eliminazione registrata",
+            "Il record e stato segnato per l'eliminazione.\nUsa 'SALVA MODIFICHE' per aggiornare il file Excel.",
+            parent=self,
+        )
 
     def nuovo_nominativo(self, record_to_edit: dict | None = None):
         if not self._working_copy_file:
@@ -1425,6 +1504,12 @@ finally {
                 continue
 
             target_row = row_by_numero.get(numero)
+            if rec.get("mode") == "delete_existing":
+                if target_row is not None:
+                    for column in range(1, 6):
+                        ws.cell(row=target_row, column=column).value = None
+                continue
+
             if target_row is None:
                 if empty_rows:
                     target_row = empty_rows.pop(0)
@@ -1505,6 +1590,7 @@ finally {
                 "rilascio": rec.get("rilascio", ""),
                 "scadenza": rec.get("scadenza", ""),
                 "note": rec.get("note", ""),
+                "mode": rec.get("mode", ""),
                 "target_row": None,
                 "set_numero": False,
             }
@@ -1515,6 +1601,11 @@ finally {
             try:
                 numero = int(str(item.get("numero", "")).strip())
             except (TypeError, ValueError):
+                continue
+
+            if item.get("mode") == "delete_existing":
+                item["target_row"] = row_by_numero.get(numero)
+                item["set_numero"] = False
                 continue
 
             target_row = row_by_numero.get(numero)
@@ -1581,6 +1672,14 @@ try {
             $targetRow = $usedEnd + 1
             $setNumero = $true
         }
+
+        if ([string]$item.mode -eq "delete_existing") {
+            if ($targetRow -gt 0) {
+                $ws.Range($ws.Cells.Item($targetRow, 1), $ws.Cells.Item($targetRow, 5)).ClearContents()
+            }
+            continue
+        }
+
         if ($setNumero -or [string]::IsNullOrWhiteSpace([string]$ws.Cells.Item($targetRow, 1).Text)) {
             $ws.Cells.Item($targetRow, 1).Value2 = [string]$item.numero
         }
@@ -1696,6 +1795,7 @@ finally {
         saved_count = len(self._pending_new_records)
         for rec in self.all_records:
             rec.pop("_pending", None)
+            rec.pop("_deleted", None)
         self._pending_new_records = []
         self.btn_save_changes.config(state="disabled")
         if trigger_reload:

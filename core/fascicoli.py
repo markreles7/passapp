@@ -167,6 +167,35 @@ def list_attachments(
     return sorted(out, key=lambda item: (item.data_aggiunta, item.id_allegato))
 
 
+def delete_attachment(
+    segnalazione_id: int,
+    id_allegato: int,
+    *,
+    remove_file: bool = True,
+    registry_path: Path = FASCICOLI_FILE,
+) -> FascicoloAttachment:
+    registry = load_registry(registry_path)
+    target_idx = None
+    target_raw: dict[str, Any] | None = None
+    for idx, raw in enumerate(registry["allegati"]):
+        if int(raw.get("segnalazione_id", 0)) == int(segnalazione_id) and int(raw.get("id_allegato", 0)) == int(id_allegato):
+            target_idx = idx
+            target_raw = raw
+            break
+    if target_idx is None or target_raw is None:
+        raise FileNotFoundError(f"Allegato {id_allegato} non trovato")
+
+    attachment = _attachment_from_dict(target_raw)
+    file_path = relative_to_path(attachment.relative_path)
+    if remove_file and file_path.exists():
+        _ensure_safe_attachment_delete(registry, int(segnalazione_id), file_path)
+        file_path.unlink()
+
+    del registry["allegati"][target_idx]
+    save_registry(registry, registry_path)
+    return attachment
+
+
 def generate_photo_sheet_html(
     segnalazione,
     registry_path: Path = FASCICOLI_FILE,
@@ -367,6 +396,18 @@ def _find_attachment_by_path(
         if int(item.get("segnalazione_id", 0)) == int(segnalazione_id) and item.get("relative_path") == relative_path:
             return item
     return None
+
+
+def _ensure_safe_attachment_delete(registry: dict[str, list[dict[str, Any]]], segnalazione_id: int, file_path: Path) -> None:
+    folder_record = _find_fascicolo(registry, segnalazione_id)
+    if folder_record is None:
+        raise RuntimeError("Fascicolo non trovato per l'allegato selezionato.")
+    folder = relative_to_path(str(folder_record.get("relative_path", ""))).resolve()
+    candidate = file_path.resolve()
+    try:
+        candidate.relative_to(folder)
+    except ValueError as exc:
+        raise RuntimeError("Eliminazione bloccata: il file non si trova nel fascicolo della pratica.") from exc
 
 
 def _next_attachment_id(registry: dict[str, list[dict[str, Any]]]) -> int:

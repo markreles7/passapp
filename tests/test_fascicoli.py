@@ -6,6 +6,7 @@ from pathlib import Path
 from core.fascicoli import (
     add_attachment,
     build_fascicolo_folder_name,
+    delete_attachment,
     ensure_fascicolo,
     generate_photo_sheet_html,
     list_attachments,
@@ -67,6 +68,24 @@ class TestFascicoli(unittest.TestCase):
             self.assertEqual(first.id_allegato, second.id_allegato)
             self.assertEqual(len(attachments), 1)
             self.assertIn("/foto/", first.relative_path.replace("\\", "/"))
+
+    def test_delete_attachment_removes_registry_entry_and_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            base_dir = root / "fascicoli"
+            registry = root / "fascicoli.json"
+            source = root / "foto prova.jpg"
+            source.write_bytes(b"image")
+            segnalazione = SegnalazioneStub()
+
+            item = add_attachment(segnalazione, source, "foto", registry_path=registry, base_dir=base_dir)
+            copied = Path(item.relative_path)
+
+            removed = delete_attachment(segnalazione.numero_progressivo, item.id_allegato, registry_path=registry)
+
+            self.assertEqual(removed.id_allegato, item.id_allegato)
+            self.assertFalse(copied.exists())
+            self.assertEqual(list_attachments(segnalazione.numero_progressivo, registry_path=registry), [])
 
     def test_generate_photo_sheet_html(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

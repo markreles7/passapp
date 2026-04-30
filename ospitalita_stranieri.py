@@ -598,6 +598,22 @@ class OspitalitaStranieriFrame(tk.Frame):
         )
         self.btn_edit.pack(side="left", padx=(8, 0))
 
+        self.btn_delete = tk.Button(
+            search_row,
+            text="Elimina selezionato",
+            bg=DANGER,
+            fg="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            activebackground="#8F2E27",
+            padx=14,
+            pady=10,
+            command=self.elimina_selezionato,
+            state="disabled",
+        )
+        self.btn_delete.pack(side="left", padx=(8, 0))
+
         self.btn_save_changes = tk.Button(
             search_row,
             text="SALVA MODIFICHE",
@@ -745,6 +761,7 @@ class OspitalitaStranieriFrame(tk.Frame):
         self._prepare_working_copy()
         self.btn_new.config(state="normal" if self._working_copy_file else "disabled")
         self.btn_edit.config(state="normal" if self._working_copy_file else "disabled")
+        self.btn_delete.config(state="normal" if self._working_copy_file else "disabled")
         self.lbl_tot.config(text=f"Totale: {len(self.all_records)}")
         self.lbl_files.config(text=f"File: {len(self._source_files)}")
 
@@ -843,6 +860,7 @@ class OspitalitaStranieriFrame(tk.Frame):
             self._pending_new_records = []
             self.btn_new.config(state="disabled")
             self.btn_edit.config(state="disabled")
+            self.btn_delete.config(state="disabled")
             self.btn_save_changes.config(state="disabled")
             self.year_combo.configure(values=("Tutti",))
             self.year_var.set("Tutti")
@@ -875,16 +893,19 @@ class OspitalitaStranieriFrame(tk.Frame):
         )
         self.btn_new.config(state="normal" if self._working_copy_file else "disabled")
         self.btn_edit.config(state="normal" if self._working_copy_file else "disabled")
+        self.btn_delete.config(state="normal" if self._working_copy_file else "disabled")
         self.btn_save_changes.config(state="disabled")
         self.applica_filtro()
 
     def applica_filtro(self):
         query = self.search_var.get().strip().lower()
         if not query:
-            self.filtered = list(self.all_records)
+            self.filtered = [rec for rec in self.all_records if not rec.get("_deleted")]
         else:
             out = []
             for rec in self.all_records:
+                if rec.get("_deleted"):
+                    continue
                 searchable = " ".join(
                     [
                         rec.get("progressivo", ""),
@@ -1031,6 +1052,12 @@ class OspitalitaStranieriFrame(tk.Frame):
                 if target is not None and isinstance(original, dict):
                     target.clear()
                     target.update(original)
+            elif mode == "delete_existing":
+                target = self._find_record_by_progressivo(progressivo, source_name=source or None)
+                original = pending.get("original_snapshot")
+                if target is not None and isinstance(original, dict):
+                    target.clear()
+                    target.update(original)
             elif mode == "append":
                 self.all_records = [
                     rec for rec in self.all_records
@@ -1161,6 +1188,58 @@ class OspitalitaStranieriFrame(tk.Frame):
             messagebox.showinfo("Nessuna selezione", "Seleziona un nominativo da modificare.")
             return
         self.nuovo_nominativo(record_to_edit=record)
+
+    def elimina_selezionato(self, _event=None):
+        if not self._working_copy_file:
+            messagebox.showwarning(
+                "Eliminazione non disponibile",
+                "Per eliminare un record seleziona un anno specifico.",
+            )
+            return
+        record = self._selected_record()
+        if record is None:
+            messagebox.showinfo("Nessuna selezione", "Seleziona un'ospitalita da eliminare.")
+            return
+        progressivo = str(record.get("progressivo", "")).strip()
+        if not progressivo:
+            messagebox.showerror("Errore record", "Progressivo non valido.")
+            return
+        nome = str(record.get("cittadino_ospitato", "")).strip() or f"progressivo {progressivo}"
+        if not messagebox.askyesno(
+            "Conferma eliminazione",
+            f"Vuoi eliminare l'ospitalita di {nome}?\n\n"
+            "L'eliminazione verra applicata al file Excel solo con 'SALVA MODIFICHE'.",
+            parent=self,
+        ):
+            return
+
+        source_name = str(record.get("source", "")).strip() or self._current_source_name()
+        original_snapshot = dict(record)
+        record["_pending"] = True
+        record["_deleted"] = True
+        self._upsert_pending_record(
+            {
+                "mode": "delete_existing",
+                "progressivo": progressivo,
+                "source": source_name,
+                "original_snapshot": original_snapshot,
+            }
+        )
+        log_audit_event(
+            "ospitalita",
+            "delete_pending",
+            "ospitalita",
+            progressivo,
+            "Eliminazione ospitalita registrata nella copia di lavoro",
+            extra={"source": source_name},
+        )
+        self.btn_save_changes.config(state="normal")
+        self.applica_filtro()
+        messagebox.showinfo(
+            "Eliminazione registrata",
+            "Il record e stato segnato per l'eliminazione.\nUsa 'SALVA MODIFICHE' per aggiornare il file Excel.",
+            parent=self,
+        )
 
     def nuovo_nominativo(self, record_to_edit: dict | None = None):
         if not self._working_copy_file:
@@ -1430,8 +1509,9 @@ class OspitalitaStranieriFrame(tk.Frame):
         ).pack(side="left", padx=(8, 0))
 
     def _append_pending_with_excel_com(self, workbook_path: Path):
-        payload = [
-            {
+        payload = []
+        for rec in self._pending_new_records:
+            item = {
                 "progressivo": str(rec.get("progressivo", "")),
                 "protocollo": str(rec.get("protocollo", "")),
                 "data": str(rec.get("data", "")),
@@ -1442,8 +1522,10 @@ class OspitalitaStranieriFrame(tk.Frame):
                 "motivo": str(rec.get("motivo", "")),
                 "indirizzo_ospitalita": str(rec.get("indirizzo_ospitalita", "")),
             }
-            for rec in self._pending_new_records
-        ]
+            mode = str(rec.get("mode", ""))
+            if mode:
+                item["mode"] = mode
+            payload.append(item)
 
         ps_script = r"""
 param(
@@ -1477,6 +1559,9 @@ try {
         }
 
         if ($targetTop -eq $null) {
+            if ([string]$item.mode -eq "delete_existing") {
+                continue
+            }
             $targetTop = $usedEnd + 1
             $ws.Cells.Item($targetTop, 1).Value2 = $prog
         }
@@ -1489,6 +1574,11 @@ try {
         } catch {}
         if ($mergeRows -lt 2) { $mergeRows = 2 }
         $targetBottom = $targetTop + $mergeRows - 1
+
+        if ([string]$item.mode -eq "delete_existing") {
+            $ws.Range($ws.Cells.Item($targetTop, 1), $ws.Cells.Item($targetBottom, 6)).ClearContents()
+            continue
+        }
 
         $ws.Cells.Item($targetTop, 2).Value2 = [string]$item.protocollo
         $ws.Cells.Item($targetTop, 3).Value2 = [string]$item.data
@@ -1582,6 +1672,7 @@ finally {
         saved_count = len(self._pending_new_records)
         for rec in self.all_records:
             rec.pop("_pending", None)
+            rec.pop("_deleted", None)
         self._pending_new_records = []
         self.btn_save_changes.config(state="disabled")
         if trigger_reload:

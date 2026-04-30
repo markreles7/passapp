@@ -1,0 +1,37 @@
+REPORT MENSILE ATTIVITA'
+Periodo: Marzo 2026
+Data generazione: 30/04/2026 09:02:19
+Ente/Comando: Polizia Locale
+
+PASS INVALIDI
+-------------
+- Totale record: 363
+- Pass validi: 291
+- Pass scaduti: 59
+- Pass in scadenza: 10
+- Nuovi inserimenti nel mese: dato non disponibile
+- Rinnovi nel mese: dato non disponibile
+
+SEGNALAZIONI
+------------
+- Totale segnalazioni ricevute nel mese: 0
+- Aperte: 0
+- Chiuse: 0
+- In lavorazione: 0
+- Urgenti/alta priorita: dato non disponibile
+- Suddivisione per categoria: dato non disponibile
+- Segnalazioni senza categoria: dato non disponibile
+- Tempi medi di chiusura: dato non disponibile
+
+SOPRALLUOGHI
+------------
+- Sopralluoghi programmati nel mese: 0
+- Sopralluoghi effettuati: 0
+- Sopralluoghi da integrare: 0
+- Sopralluoghi chiusi: 0
+- Suddivisione per operatore: dato non disponibile
+
+OSPITALITA STRANIERI
+--------------------
+- Totale comunicazioni/record nel mese: 32
+- Pratiche incomplete: 0
