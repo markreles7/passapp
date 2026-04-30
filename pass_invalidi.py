@@ -45,7 +45,6 @@ logger = setup_module_logger(__name__, LOG_FILE)
 CARTELLA_RETE = PATHS["pass_invalidi_network_folder"]
 PATTERN_FILE = PATHS["pass_invalidi_pattern"]
 GIORNI_SCADENZA = int(APP_CONFIG["pass_invalidi"]["warning_days"])
-LOGO_PATH = resolve_path(PATHS["logo_path"])
 WORK_COPY_DIR = resolve_path("data/workcopies/pass_invalidi")
 AUTH_DOCS_DIR = PATHS.get("pass_invalidi_docs_folder") or os.path.join(CARTELLA_RETE, "Tesserini rilasciati")
 AUTH_TEMPLATE_PATH = PATHS.get("pass_invalidi_authorization_template") or os.path.join(
@@ -515,39 +514,6 @@ class PassInvalidiFrame(tk.Frame):
         # Hint doppio click
         tk.Label(self, text="Doppio clic su una riga per vedere tutti i dettagli",
                  bg=BG, fg=TEXT_DIM, font=("Segoe UI", 8)).pack(pady=(0, 6))
-
-        # BANNER LOGO IN FONDO AL CENTRO
-        self.banner_frame = tk.Frame(self, bg=BG)
-        self.banner_frame.pack(fill="x", side="bottom")
-        self._build_logo_banner()
-
-    def _build_logo_banner(self):
-        """Banner logo centrato in fondo, semi-trasparente."""
-        try:
-            from PIL import Image, ImageTk
-
-            img = Image.open(LOGO_PATH).convert("RGBA")
-
-            h_target = 100
-            ratio = h_target / img.height
-            new_w = int(img.width * ratio)
-            img = img.resize((new_w, h_target), Image.LANCZOS)
-
-            r, g, b, a = img.split()
-            a = a.point(lambda x: int(x * 0.45))
-            img.putalpha(a)
-
-            bg_img = Image.new("RGBA", img.size, (245, 243, 239, 255))
-            bg_img.paste(img, mask=img.split()[3])
-
-            self._banner_img = ImageTk.PhotoImage(bg_img.convert("RGB"))
-
-            tk.Frame(self.banner_frame, bg=BORDER, height=1).pack(fill="x")
-
-            lbl = tk.Label(self.banner_frame, image=self._banner_img, bg=BG, bd=0)
-            lbl.pack(pady=(4, 6))
-        except Exception:
-            pass  # Pillow non disponibile o logo assente
 
     def _stat_pill(self, parent, text, color=None):
         f = tk.Frame(parent, bg=BG2, relief="flat",

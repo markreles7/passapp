@@ -21,3 +21,4 @@
 {"timestamp":"2026-04-30T09:04:54","module":"sistema","action":"export_report_pdf","entity_type":"report_mensile","entity_id":null,"description":"Esportazione PDF report mensile non riuscita","result":"error","error":"Errore sconosciuto","operator":null,"extra":null}
 {"timestamp":"2026-04-30T09:04:58","module":"sistema","action":"export_report_txt","entity_type":"report_mensile","entity_id":"2026-03","description":"Esportato report mensile TXT","result":"success","error":null,"operator":null,"extra":null}
 {"timestamp":"2026-04-30T09:05:03","module":"sistema","action":"diagnostics","entity_type":"system","entity_id":null,"description":"Diagnostica configurazione eseguita","result":"success","error":null,"operator":null,"extra":null}
+{"timestamp":"2026-04-30T12:11:14","module":"sistema","action":"diagnostics","entity_type":"system","entity_id":null,"description":"Diagnostica configurazione eseguita","result":"success","error":null,"operator":null,"extra":null}
