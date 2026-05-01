@@ -296,10 +296,19 @@ class MainMenuFrame(tk.Frame):
 
     def _unbind_mousewheel(self, _event=None):
         if self._mousewheel_binding_id is not None:
-            self.scroll_canvas.unbind_class(
-                "all", "<MouseWheel>", self._mousewheel_binding_id
-            )
-            self._mousewheel_binding_id = None
+            binding_id = self._mousewheel_binding_id
+            try:
+                current_binding = self.scroll_canvas.tk.call("bind", "all", "<MouseWheel>")
+                if current_binding:
+                    remaining = "\n".join(
+                        line for line in str(current_binding).splitlines() if binding_id not in line
+                    )
+                    self.scroll_canvas.tk.call("bind", "all", "<MouseWheel>", remaining)
+                self.scroll_canvas._root().deletecommand(binding_id)
+            except tk.TclError:
+                pass
+            finally:
+                self._mousewheel_binding_id = None
 
     def _on_mousewheel(self, event):
         self.scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
