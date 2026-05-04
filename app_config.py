@@ -17,6 +17,7 @@ else:
     BASE_DIR = SOURCE_DIR
     RESOURCE_DIR = SOURCE_DIR
 CONFIG_PATH = BASE_DIR / "data" / "config.json"
+BUNDLED_CONFIG_PATH = RESOURCE_DIR / "data" / "config.json"
 
 logger = logging.getLogger(__name__)
 
@@ -159,17 +160,21 @@ def load_config(force_reload: bool = False) -> dict[str, Any]:
 
     config = deepcopy(DEFAULT_CONFIG)
     _CONFIG_DIAGNOSTIC = None
+    config_path = CONFIG_PATH
+    if getattr(sys, "frozen", False) and not config_path.exists() and BUNDLED_CONFIG_PATH.exists():
+        config_path = BUNDLED_CONFIG_PATH
+
     try:
-        raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
             config = _deep_merge(config, raw)
     except FileNotFoundError:
         pass
     except json.JSONDecodeError as exc:
-        _CONFIG_DIAGNOSTIC = f"Configurazione JSON non valida in {CONFIG_PATH}: {exc}"
+        _CONFIG_DIAGNOSTIC = f"Configurazione JSON non valida in {config_path}: {exc}"
         logger.warning(_CONFIG_DIAGNOSTIC)
     except OSError as exc:
-        _CONFIG_DIAGNOSTIC = f"Configurazione non leggibile in {CONFIG_PATH}: {exc}"
+        _CONFIG_DIAGNOSTIC = f"Configurazione non leggibile in {config_path}: {exc}"
         logger.warning(_CONFIG_DIAGNOSTIC)
 
     _apply_modern_ui_theme(config)

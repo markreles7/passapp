@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import datetime as dt
 import json
 import os
@@ -8,11 +8,13 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -23,6 +25,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTabWidget,
     QTableWidget,
@@ -42,6 +45,7 @@ from core.fascicoli import (
     list_attachments,
     open_path,
 )
+from core.sopralluoghi import STATI_SOPRALLUOGO
 import segnalazioni as segn_mod
 from segnalazioni import (
     CATEGORIA_DEFAULT,
@@ -64,7 +68,260 @@ from qt_app.widgets import page_header
 from qt_app.workers import SegnalazionePdfWorker
 
 
+class SegnalazioneEditDialog(QDialog):
+    def __init__(self, seg: Segnalazione, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.source = seg
+        self.result_seg: Segnalazione | None = None
+        self.fields: dict[str, QLineEdit] = {}
+
+        self.setWindowTitle(f"Compila segnalazione n. {seg.numero_progressivo}")
+        self.setModal(True)
+        self.resize(980, 760)
+        self.setMinimumSize(820, 620)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
+
+        title = QLabel(f"Segnalazione n. {seg.numero_progressivo}")
+        title.setStyleSheet("font-size: 16pt; font-weight: 700;")
+        root.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(14)
+
+        top_grid = QGridLayout()
+        top_grid.setHorizontalSpacing(18)
+        top_grid.setVerticalSpacing(10)
+        field_specs = (
+            ("anno", "Anno", seg.anno),
+            ("mese", "Mese", seg.mese),
+            ("giorno", "Giorno", seg.giorno),
+            ("ora", "Ora", seg.ora),
+            ("nominativo", "Nominativo", seg.nominativo),
+            ("residenza", "Residenza", seg.residenza),
+            ("indirizzo", "Indirizzo segnalazione", seg.indirizzo),
+            ("telefono", "Telefono", seg.telefono),
+            ("ricevente", "Ricevente", seg.ricevente),
+            ("agente", "Agente verificatore", seg.agente_verificatore),
+            ("data_verifica", "Data verifica", seg.data_verifica),
+        )
+        for idx, (key, label, value) in enumerate(field_specs):
+            row = idx // 2
+            col = (idx % 2) * 2
+            edit = QLineEdit(value)
+            edit.setMinimumHeight(36)
+            self.fields[key] = edit
+            top_grid.addWidget(QLabel(label), row, col)
+            top_grid.addWidget(edit, row, col + 1)
+        top_grid.setColumnStretch(1, 1)
+        top_grid.setColumnStretch(3, 1)
+        body_layout.addLayout(top_grid)
+
+        choices = QGridLayout()
+        choices.setHorizontalSpacing(18)
+        choices.setVerticalSpacing(10)
+        self.modalita = QComboBox()
+        self.modalita.addItems(MODALITA_OPZIONI)
+        self.modalita.setCurrentText(seg.modalita_segnalazione or MODALITA_OPZIONI[0])
+        self.categoria = QComboBox()
+        self.categoria.addItems(CATEGORIA_OPZIONI)
+        self.categoria.setCurrentText(normalize_categoria(seg.categoria))
+        self.priorita = QComboBox()
+        self.priorita.addItems(PRIORITA_OPZIONI)
+        self.priorita.setCurrentText(normalize_priorita(seg.priorita))
+        self.stato_lavorazione = QComboBox()
+        self.stato_lavorazione.addItems(STATO_LAVORAZIONE_OPZIONI)
+        self.stato_lavorazione.setCurrentText(normalize_stato_lavorazione(seg.stato_lavorazione, seg.stato))
+        for idx, (label, widget) in enumerate((
+            ("Modalita", self.modalita),
+            ("Categoria", self.categoria),
+            ("Priorita", self.priorita),
+            ("Stato lavorazione", self.stato_lavorazione),
+        )):
+            row = idx // 2
+            col = (idx % 2) * 2
+            widget.setMinimumHeight(36)
+            choices.addWidget(QLabel(label), row, col)
+            choices.addWidget(widget, row, col + 1)
+        choices.setColumnStretch(1, 1)
+        choices.setColumnStretch(3, 1)
+        body_layout.addLayout(choices)
+
+        body_layout.addWidget(QLabel("Descrizione segnalazione"))
+        self.descrizione = QTextEdit(seg.descrizione_segnalazione)
+        self.descrizione.setMinimumHeight(190)
+        body_layout.addWidget(self.descrizione)
+
+        body_layout.addWidget(QLabel("Verifica effettuata"))
+        self.verifica = QTextEdit(seg.verifica_effettuata)
+        self.verifica.setMinimumHeight(160)
+        body_layout.addWidget(self.verifica)
+
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Save).setText("Salva segnalazione")
+        buttons.button(QDialogButtonBox.Cancel).setText("Annulla")
+        buttons.accepted.connect(self._accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def _accept(self) -> None:
+        anno = self.fields["anno"].text().strip()
+        mese = self.fields["mese"].text().strip()
+        giorno = self.fields["giorno"].text().strip()
+        ora = self.fields["ora"].text().strip()
+        nominativo = self.fields["nominativo"].text().strip()
+        descrizione = self.descrizione.toPlainText().strip()
+        ricevente = self.fields["ricevente"].text().strip()
+        if not anno or not mese or not giorno:
+            QMessageBox.warning(self, "Dati non validi", "Compila Anno, Mese e Giorno.")
+            return
+        try:
+            dt.date(int(anno), int(mese), int(giorno))
+        except (TypeError, ValueError):
+            QMessageBox.warning(self, "Dati non validi", "La data non e valida.")
+            return
+        try:
+            dt.datetime.strptime(ora, "%H:%M")
+        except ValueError:
+            QMessageBox.warning(self, "Dati non validi", "L'ora non e valida. Usa il formato HH:MM.")
+            return
+        if not nominativo:
+            QMessageBox.warning(self, "Dati non validi", "Il campo Nominativo e obbligatorio.")
+            return
+        if not descrizione:
+            QMessageBox.warning(self, "Dati non validi", "Il campo Descrizione segnalazione e obbligatorio.")
+            return
+        if not ricevente:
+            QMessageBox.warning(self, "Dati non validi", "Il campo Ricevente e obbligatorio.")
+            return
+
+        self.result_seg = replace(
+            self.source,
+            anno=anno,
+            mese=mese,
+            giorno=giorno,
+            ora=ora,
+            nominativo=nominativo,
+            residenza=self.fields["residenza"].text().strip(),
+            indirizzo=self.fields["indirizzo"].text().strip(),
+            telefono=self.fields["telefono"].text().strip(),
+            modalita_segnalazione=self.modalita.currentText(),
+            ricevente=ricevente,
+            agente_verificatore=self.fields["agente"].text().strip(),
+            data_verifica=self.fields["data_verifica"].text().strip(),
+            descrizione_segnalazione=descrizione,
+            verifica_effettuata=self.verifica.toPlainText().strip(),
+            categoria=normalize_categoria(self.categoria.currentText()),
+            priorita=normalize_priorita(self.priorita.currentText()),
+            stato_lavorazione=normalize_stato_lavorazione(self.stato_lavorazione.currentText(), self.source.stato),
+        )
+        self.accept()
+
+
+class SegnalazioneWorkflowDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("Guida procedura segnalazione e sopralluogo")
+        self.setModal(True)
+        self.resize(920, 720)
+        self.setMinimumSize(760, 560)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
+
+        title = QLabel("Procedura guidata")
+        title.setStyleSheet("font-size: 16pt; font-weight: 700;")
+        root.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(10)
+
+        steps = (
+            (
+                "1. Ricezione e inserimento segnalazione",
+                "Apri Nuova segnalazione e compila data, ora, nominativo, residenza, indirizzo del fatto, telefono, ricevente e descrizione. "
+                f"Modalita disponibili: {', '.join(MODALITA_OPZIONI)}. "
+                f"Categoria: {', '.join(CATEGORIA_OPZIONI)}. Priorita: {', '.join(PRIORITA_OPZIONI)}.",
+            ),
+            (
+                "2. Classificazione e stato lavorazione",
+                "Imposta lo stato lavorazione in base alla pratica. "
+                f"Stati disponibili: {', '.join(STATO_LAVORAZIONE_OPZIONI)}. "
+                "Per una pratica appena ricevuta usa di norma Aperta o Sopralluogo da programmare.",
+            ),
+            (
+                "3. Creazione fascicolo digitale",
+                "Dopo il salvataggio seleziona la segnalazione e premi Crea/Verifica. Il fascicolo diventa il contenitore unico di foto, allegati, PDF della segnalazione e documenti successivi.",
+            ),
+            (
+                "4. Inserimento foto e allegati",
+                "Usa Aggiungi foto per immagini del luogo, dello stato dei fatti o dei dettagli utili. Usa Aggiungi allegato per documenti, comunicazioni o note esterne. "
+                "Poi usa Scheda foto per creare il fascicolo fotografico HTML.",
+            ),
+            (
+                "5. Generazione modulo segnalazione",
+                "Quando i dati sono completi usa Esporta PDF. Il documento viene registrato nel fascicolo della segnalazione, cosi resta collegato agli allegati.",
+            ),
+            (
+                "6. Apertura sopralluogo collegato",
+                "Usa Nuovo sopralluogo dalla segnalazione. Il modulo Sopralluoghi si apre gia filtrato e precompilato con il numero della segnalazione e il luogo, se presente.",
+            ),
+            (
+                "7. Compilazione sopralluogo",
+                "Nel sopralluogo compila data, ora, operatori, luogo, ufficio destinatario, esito e note operative. "
+                f"Stati sopralluogo: {', '.join(STATI_SOPRALLUOGO)}. "
+                "Spunta Foto/allegati presenti quando il fascicolo contiene materiale fotografico o documentale.",
+            ),
+            (
+                "8. Chiusura pratica",
+                "Dopo sopralluogo e documenti finali, aggiorna la segnalazione con agente verificatore, data verifica e verifica effettuata. "
+                "Quando la pratica e completa, usa Archivia.",
+            ),
+        )
+
+        for step_title, text in steps:
+            box = QFrame()
+            box.setObjectName("SubPanel")
+            box_layout = QVBoxLayout(box)
+            box_layout.setContentsMargins(12, 10, 12, 10)
+            box_layout.setSpacing(5)
+            heading = QLabel(step_title)
+            heading.setStyleSheet("font-weight: 700;")
+            heading.setWordWrap(True)
+            desc = QLabel(text)
+            desc.setObjectName("Muted")
+            desc.setWordWrap(True)
+            box_layout.addWidget(heading)
+            box_layout.addWidget(desc)
+            body_layout.addWidget(box)
+
+        body_layout.addStretch(1)
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.button(QDialogButtonBox.Close).setText("Chiudi")
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+
 class SegnalazioniPage(QWidget):
+    request_sopralluoghi = Signal(int, bool, str)
+
     def __init__(self, config: dict, parent: QWidget | None = None):
         super().__init__(parent)
         self.config = config
@@ -175,61 +432,57 @@ class SegnalazioniPage(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        title = QLabel("Dettaglio segnalazione")
+        title = QLabel("Riepilogo segnalazione")
         title.setStyleSheet("font-size: 13pt; font-weight: 700;")
         layout.addWidget(title)
 
-        form = QFormLayout()
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(8)
-        for key, label in (
-            ("numero", "Numero"),
-            ("anno", "Anno"),
-            ("mese", "Mese"),
-            ("giorno", "Giorno"),
-            ("ora", "Ora"),
-            ("nominativo", "Nominativo"),
-            ("residenza", "Residenza"),
-            ("indirizzo", "Indirizzo"),
-            ("telefono", "Telefono"),
-            ("ricevente", "Ricevente"),
-            ("agente", "Agente verificatore"),
-            ("data_verifica", "Data verifica"),
-            ("stato", "Stato record"),
-        ):
-            field = QLineEdit()
-            self.fields[key] = field
-            form.addRow(label, field)
+        self.summary_title = QLabel("Nessuna segnalazione selezionata")
+        self.summary_title.setStyleSheet("font-size: 12pt; font-weight: 700;")
+        self.summary_title.setWordWrap(True)
+        layout.addWidget(self.summary_title)
 
-        self.fields["numero"].setReadOnly(True)
-        self.fields["stato"].setReadOnly(True)
+        self.summary_meta = QLabel("")
+        self.summary_meta.setObjectName("Muted")
+        self.summary_meta.setWordWrap(True)
+        layout.addWidget(self.summary_meta)
 
-        self.modalita = QComboBox()
-        self.modalita.addItems(MODALITA_OPZIONI)
-        form.addRow("Modalita", self.modalita)
-
-        self.categoria = QComboBox()
-        self.categoria.addItems(CATEGORIA_OPZIONI)
-        form.addRow("Categoria", self.categoria)
-
-        self.priorita = QComboBox()
-        self.priorita.addItems(PRIORITA_OPZIONI)
-        form.addRow("Priorita", self.priorita)
-
-        self.stato_lavorazione = QComboBox()
-        self.stato_lavorazione.addItems(STATO_LAVORAZIONE_OPZIONI)
-        form.addRow("Stato lavorazione", self.stato_lavorazione)
-        layout.addLayout(form)
+        self.summary_status = QLabel("")
+        self.summary_status.setObjectName("Muted")
+        self.summary_status.setWordWrap(True)
+        layout.addWidget(self.summary_status)
 
         layout.addWidget(QLabel("Descrizione segnalazione"))
         self.descrizione = QTextEdit()
-        self.descrizione.setFixedHeight(100)
+        self.descrizione.setReadOnly(True)
+        self.descrizione.setMinimumHeight(150)
         layout.addWidget(self.descrizione)
 
         layout.addWidget(QLabel("Verifica effettuata"))
         self.verifica = QTextEdit()
-        self.verifica.setFixedHeight(100)
+        self.verifica.setReadOnly(True)
+        self.verifica.setMinimumHeight(130)
         layout.addWidget(self.verifica)
+
+        guide_box = QFrame()
+        guide_box.setObjectName("SubPanel")
+        guide_layout = QVBoxLayout(guide_box)
+        guide_layout.setContentsMargins(12, 12, 12, 12)
+        guide_layout.setSpacing(8)
+        guide_title = QLabel("Procedura segnalazione -> sopralluogo")
+        guide_title.setStyleSheet("font-weight: 700;")
+        guide_layout.addWidget(guide_title)
+        self.workflow_hint = QLabel(
+            "1. Compila la segnalazione. 2. Crea fascicolo e allega foto/documenti. "
+            "3. Genera PDF segnalazione. 4. Apri Nuovo sopralluogo. 5. Compila esito e verbale."
+        )
+        self.workflow_hint.setObjectName("Muted")
+        self.workflow_hint.setWordWrap(True)
+        guide_layout.addWidget(self.workflow_hint)
+        guide_button = QPushButton("Guida procedura")
+        guide_button.setProperty("secondary", "true")
+        guide_button.clicked.connect(self.show_workflow_guide)
+        guide_layout.addWidget(guide_button)
+        layout.addWidget(guide_box)
 
         fascicolo_box = QFrame()
         fascicolo_box.setObjectName("SubPanel")
@@ -259,12 +512,18 @@ class SegnalazioniPage(QWidget):
 
         actions = QHBoxLayout()
         self.save_button = QPushButton("Salva")
-        self.save_button.clicked.connect(self.save_current)
+        self.save_button.clicked.connect(self.edit_current_dialog)
         self.close_button = QPushButton("Archivia")
         self.close_button.clicked.connect(self.close_current)
         self.close_button.setProperty("danger", "true")
         self.pdf_button = QPushButton("Esporta PDF")
         self.pdf_button.clicked.connect(self.export_selected_pdf)
+        self.sopralluoghi_button = QPushButton("Sopralluoghi")
+        self.sopralluoghi_button.setProperty("secondary", "true")
+        self.sopralluoghi_button.clicked.connect(lambda: self.open_sopralluoghi(False))
+        self.new_sopralluogo_button = QPushButton("Nuovo sopralluogo")
+        self.new_sopralluogo_button.setProperty("secondary", "true")
+        self.new_sopralluogo_button.clicked.connect(lambda: self.open_sopralluoghi(True))
         clear_button = QPushButton("Annulla")
         clear_button.setProperty("secondary", "true")
         clear_button.clicked.connect(self.clear_detail)
@@ -275,6 +534,8 @@ class SegnalazioniPage(QWidget):
         actions.addWidget(self.save_button)
         actions.addWidget(self.close_button)
         actions.addWidget(self.pdf_button)
+        actions.addWidget(self.sopralluoghi_button)
+        actions.addWidget(self.new_sopralluogo_button)
         actions.addWidget(clear_button)
         actions.addStretch(1)
         actions.addWidget(self.pdf_progress)
@@ -418,23 +679,31 @@ class SegnalazioniPage(QWidget):
         return self.find_report(self.selected_numero, self.selected_stato)
 
     def load_detail(self, seg: Segnalazione) -> None:
-        self.fields["numero"].setText(str(seg.numero_progressivo))
-        self.fields["anno"].setText(seg.anno)
-        self.fields["mese"].setText(seg.mese)
-        self.fields["giorno"].setText(seg.giorno)
-        self.fields["ora"].setText(seg.ora)
-        self.fields["nominativo"].setText(seg.nominativo)
-        self.fields["residenza"].setText(seg.residenza)
-        self.fields["indirizzo"].setText(seg.indirizzo)
-        self.fields["telefono"].setText(seg.telefono)
-        self.fields["ricevente"].setText(seg.ricevente)
-        self.fields["agente"].setText(seg.agente_verificatore)
-        self.fields["data_verifica"].setText(seg.data_verifica)
-        self.fields["stato"].setText(seg.stato)
-        self.modalita.setCurrentText(seg.modalita_segnalazione or MODALITA_OPZIONI[0])
-        self.categoria.setCurrentText(normalize_categoria(seg.categoria))
-        self.priorita.setCurrentText(normalize_priorita(seg.priorita))
-        self.stato_lavorazione.setCurrentText(normalize_stato_lavorazione(seg.stato_lavorazione, seg.stato))
+        self.summary_title.setText(f"Segnalazione n. {seg.numero_progressivo} - {seg.nominativo or 'Nominativo non indicato'}")
+        self.summary_meta.setText(
+            "\n".join(
+                (
+                    f"Data/ora: {seg.giorno}/{seg.mese}/{seg.anno} {seg.ora}",
+                    f"Luogo: {seg.indirizzo or '-'}",
+                    f"Residenza: {seg.residenza or '-'}",
+                    f"Telefono: {seg.telefono or '-'}",
+                    f"Ricevente: {seg.ricevente or '-'}",
+                    f"Agente verificatore: {seg.agente_verificatore or '-'}",
+                    f"Data verifica: {seg.data_verifica or '-'}",
+                )
+            )
+        )
+        self.summary_status.setText(
+            "\n".join(
+                (
+                    f"Record: {seg.stato}",
+                    f"Modalita: {seg.modalita_segnalazione or '-'}",
+                    f"Categoria: {seg.categoria}",
+                    f"Priorita: {seg.priorita}",
+                    f"Stato lavorazione: {seg.stato_lavorazione}",
+                )
+            )
+        )
         self.descrizione.setPlainText(seg.descrizione_segnalazione)
         self.verifica.setPlainText(seg.verifica_effettuata)
         self._set_form_editable(seg.stato == "in_corso")
@@ -443,12 +712,9 @@ class SegnalazioniPage(QWidget):
     def clear_detail(self) -> None:
         self.selected_numero = None
         self.selected_stato = None
-        for field in self.fields.values():
-            field.clear()
-        self.modalita.setCurrentText(MODALITA_OPZIONI[0])
-        self.categoria.setCurrentText(CATEGORIA_DEFAULT)
-        self.priorita.setCurrentText(PRIORITA_DEFAULT)
-        self.stato_lavorazione.setCurrentText(STATO_LAVORAZIONE_DEFAULT)
+        self.summary_title.setText("Nessuna segnalazione selezionata")
+        self.summary_meta.setText("")
+        self.summary_status.setText("")
         self.descrizione.clear()
         self.verifica.clear()
         self.open_table.clearSelection()
@@ -457,14 +723,25 @@ class SegnalazioniPage(QWidget):
         self.fascicolo_status.setText("Fascicolo: non creato")
 
     def _set_form_editable(self, editable: bool) -> None:
-        for key, field in self.fields.items():
-            if key not in {"numero", "stato"}:
-                field.setReadOnly(not editable)
-        for widget in (self.modalita, self.categoria, self.priorita, self.stato_lavorazione, self.descrizione, self.verifica):
-            widget.setEnabled(editable)
+        self.save_button.setText("Modifica dati")
         self.save_button.setEnabled(editable)
         self.close_button.setEnabled(editable)
-        self.pdf_button.setEnabled(self.selected_report() is not None and self.pdf_thread is None)
+        selected = self.selected_report() is not None
+        self.pdf_button.setEnabled(selected and self.pdf_thread is None)
+        self.sopralluoghi_button.setEnabled(selected)
+        self.new_sopralluogo_button.setEnabled(selected)
+
+    def open_sopralluoghi(self, create_new: bool) -> None:
+        seg = self.selected_report()
+        if seg is None:
+            QMessageBox.information(self, "Selezione richiesta", "Seleziona una segnalazione.")
+            return
+        luogo = seg.indirizzo.strip() or seg.residenza.strip()
+        self.request_sopralluoghi.emit(seg.numero_progressivo, create_new, luogo)
+
+    def show_workflow_guide(self) -> None:
+        dialog = SegnalazioneWorkflowDialog(self)
+        dialog.exec()
 
     def new_report(self) -> None:
         now = dt.datetime.now()
@@ -476,6 +753,10 @@ class SegnalazioniPage(QWidget):
             ora=f"{now.hour:02d}:{now.minute:02d}",
             stato="in_corso",
         )
+        dialog = SegnalazioneEditDialog(seg, self)
+        if dialog.exec() != QDialog.Accepted or dialog.result_seg is None:
+            return
+        seg = dialog.result_seg
         self.next_progressivo += 1
         self.segnalazioni.append(seg)
         if self.save_to_disk():
@@ -490,33 +771,7 @@ class SegnalazioniPage(QWidget):
         self.tabs.setCurrentWidget(self.open_table)
         self.select_report(seg.numero_progressivo, "in_corso")
 
-    def validate_form(self) -> tuple[bool, str]:
-        anno = self.fields["anno"].text().strip()
-        mese = self.fields["mese"].text().strip()
-        giorno = self.fields["giorno"].text().strip()
-        ora = self.fields["ora"].text().strip()
-        nominativo = self.fields["nominativo"].text().strip()
-        descrizione = self.descrizione.toPlainText().strip()
-        ricevente = self.fields["ricevente"].text().strip()
-        if not anno or not mese or not giorno:
-            return False, "Compila Anno, Mese e Giorno."
-        try:
-            dt.date(int(anno), int(mese), int(giorno))
-        except (TypeError, ValueError):
-            return False, "La data non e valida."
-        try:
-            dt.datetime.strptime(ora, "%H:%M")
-        except ValueError:
-            return False, "L'ora non e valida. Usa il formato HH:MM."
-        if not nominativo:
-            return False, "Il campo Nominativo e obbligatorio."
-        if not descrizione:
-            return False, "Il campo Segnala e obbligatorio."
-        if not ricevente:
-            return False, "Il campo Ricevente e obbligatorio."
-        return True, ""
-
-    def save_current(self) -> bool:
+    def edit_current_dialog(self) -> bool:
         seg = self.selected_report()
         if seg is None:
             QMessageBox.information(self, "Selezione richiesta", "Seleziona una segnalazione da modificare.")
@@ -524,64 +779,65 @@ class SegnalazioniPage(QWidget):
         if seg.stato != "in_corso":
             QMessageBox.information(self, "Archivio", "Le segnalazioni archiviate sono in sola lettura.")
             return False
-        valid, reason = self.validate_form()
-        if not valid:
-            QMessageBox.warning(self, "Dati non validi", reason)
-            return False
 
+        dialog = SegnalazioneEditDialog(seg, self)
+        if dialog.exec() != QDialog.Accepted or dialog.result_seg is None:
+            return False
+        return self.apply_edited_report(seg, dialog.result_seg)
+
+    def apply_edited_report(self, seg: Segnalazione, updated: Segnalazione) -> bool:
         old_status = seg.stato_lavorazione
         old_priority = seg.priorita
         old_category = seg.categoria
-
-        seg.anno = self.fields["anno"].text().strip()
-        seg.mese = self.fields["mese"].text().strip()
-        seg.giorno = self.fields["giorno"].text().strip()
-        seg.ora = self.fields["ora"].text().strip()
-        seg.nominativo = self.fields["nominativo"].text().strip()
-        seg.residenza = self.fields["residenza"].text().strip()
-        seg.indirizzo = self.fields["indirizzo"].text().strip()
-        seg.telefono = self.fields["telefono"].text().strip()
-        seg.modalita_segnalazione = self.modalita.currentText()
-        seg.ricevente = self.fields["ricevente"].text().strip()
-        seg.agente_verificatore = self.fields["agente"].text().strip()
-        seg.data_verifica = self.fields["data_verifica"].text().strip()
-        seg.descrizione_segnalazione = self.descrizione.toPlainText().strip()
-        seg.verifica_effettuata = self.verifica.toPlainText().strip()
-        seg.categoria = normalize_categoria(self.categoria.currentText())
-        seg.priorita = normalize_priorita(self.priorita.currentText())
-        seg.stato_lavorazione = normalize_stato_lavorazione(self.stato_lavorazione.currentText(), seg.stato)
-
+        index = self.segnalazioni.index(seg)
+        self.segnalazioni[index] = updated
         if not self.save_to_disk():
+            self.segnalazioni[index] = seg
             return False
         log_audit_event(
             "segnalazioni",
             "update",
             "segnalazione",
-            f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+            f"SEG-{updated.anno}-{updated.numero_progressivo:04d}",
             "Modificata segnalazione",
             extra={
-                "categoria": f"{old_category} -> {seg.categoria}" if old_category != seg.categoria else seg.categoria,
-                "priorita": f"{old_priority} -> {seg.priorita}" if old_priority != seg.priorita else seg.priorita,
+                "categoria": f"{old_category} -> {updated.categoria}" if old_category != updated.categoria else updated.categoria,
+                "priorita": f"{old_priority} -> {updated.priorita}" if old_priority != updated.priorita else updated.priorita,
             },
         )
-        if old_status != seg.stato_lavorazione:
+        if old_status != updated.stato_lavorazione:
             log_audit_event(
                 "segnalazioni",
                 "status_change",
                 "segnalazione",
-                f"SEG-{seg.anno}-{seg.numero_progressivo:04d}",
+                f"SEG-{updated.anno}-{updated.numero_progressivo:04d}",
                 "Cambio stato lavorazione segnalazione",
-                extra={"from": old_status, "to": seg.stato_lavorazione},
+                extra={"from": old_status, "to": updated.stato_lavorazione},
             )
         self.refresh_tables()
-        self.select_report(seg.numero_progressivo, seg.stato)
+        self.select_report(updated.numero_progressivo, updated.stato)
         return True
+
+    def validate_form(self) -> tuple[bool, str]:
+        seg = self.selected_report()
+        if seg is None:
+            return False, "Seleziona una segnalazione."
+        if not seg.anno or not seg.mese or not seg.giorno:
+            return False, "Compila Anno, Mese e Giorno."
+        if not seg.nominativo.strip():
+            return False, "Il campo Nominativo e obbligatorio."
+        if not seg.descrizione_segnalazione.strip():
+            return False, "Il campo Descrizione segnalazione e obbligatorio."
+        if not seg.ricevente.strip():
+            return False, "Il campo Ricevente e obbligatorio."
+        return True, ""
+
+    def save_current(self) -> bool:
+        return self.edit_current_dialog()
 
     def close_current(self) -> None:
         seg = self.selected_report()
         if seg is None or seg.stato != "in_corso":
-            return
-        if not self.save_current():
             return
         if not seg.agente_verificatore.strip():
             QMessageBox.warning(self, "Dati incompleti", "Compila il campo Agente verificatore prima di archiviare.")
@@ -755,27 +1011,7 @@ class SegnalazioniPage(QWidget):
         self.update_fascicolo_status()
 
     def snapshot_current_form(self, seg: Segnalazione) -> Segnalazione:
-        return Segnalazione(
-            numero_progressivo=seg.numero_progressivo,
-            anno=self.fields["anno"].text().strip() or seg.anno,
-            mese=self.fields["mese"].text().strip() or seg.mese,
-            giorno=self.fields["giorno"].text().strip() or seg.giorno,
-            ora=self.fields["ora"].text().strip() or seg.ora,
-            nominativo=self.fields["nominativo"].text().strip() or seg.nominativo,
-            residenza=self.fields["residenza"].text().strip() or seg.residenza,
-            indirizzo=self.fields["indirizzo"].text().strip() or seg.indirizzo,
-            telefono=self.fields["telefono"].text().strip() or seg.telefono,
-            modalita_segnalazione=self.modalita.currentText().strip() or seg.modalita_segnalazione,
-            descrizione_segnalazione=self.descrizione.toPlainText().strip() or seg.descrizione_segnalazione,
-            ricevente=self.fields["ricevente"].text().strip() or seg.ricevente,
-            agente_verificatore=self.fields["agente"].text().strip() or seg.agente_verificatore,
-            verifica_effettuata=self.verifica.toPlainText().strip() or seg.verifica_effettuata,
-            data_verifica=self.fields["data_verifica"].text().strip() or seg.data_verifica,
-            categoria=normalize_categoria(self.categoria.currentText() or seg.categoria),
-            priorita=normalize_priorita(self.priorita.currentText() or seg.priorita),
-            stato_lavorazione=normalize_stato_lavorazione(self.stato_lavorazione.currentText() or seg.stato_lavorazione, seg.stato),
-            stato=seg.stato,
-        )
+        return seg
 
     def export_selected_pdf(self) -> None:
         if self.pdf_thread is not None:

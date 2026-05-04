@@ -37,8 +37,11 @@ class MainWindow(QMainWindow):
         self.pages: dict[str, QWidget] = {}
         self._add_page("dashboard", DashboardPage(config))
         self._add_page("pass_invalidi", PassInvalidiPage(config))
-        self._add_page("segnalazioni", SegnalazioniPage(config))
-        self._add_page("sopralluoghi", SopralluoghiPage(config))
+        segnalazioni_page = SegnalazioniPage(config)
+        sopralluoghi_page = SopralluoghiPage(config)
+        segnalazioni_page.request_sopralluoghi.connect(self.open_sopralluoghi_for_segnalazione)
+        self._add_page("segnalazioni", segnalazioni_page)
+        self._add_page("sopralluoghi", sopralluoghi_page)
         self._add_page("ospitalita", OspitalitaPage(config))
         self._add_page("report", ReportPage(config))
         self._add_page("contatti", ContactsPage(config))
@@ -60,3 +63,11 @@ class MainWindow(QMainWindow):
             return
         self.stack.setCurrentWidget(page)
         self.sidebar.set_active(key)
+
+    def open_sopralluoghi_for_segnalazione(self, segnalazione_id: int, create_new: bool, luogo: str) -> None:
+        page = self.pages.get("sopralluoghi")
+        if page is None:
+            return
+        if hasattr(page, "open_for_segnalazione"):
+            page.open_for_segnalazione(segnalazione_id, create_new=create_new, luogo=luogo)
+        self.show_page("sopralluoghi")

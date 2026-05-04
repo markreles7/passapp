@@ -6,6 +6,7 @@ from core.dashboard_service import collect_dashboard_snapshot
 from core.report_exporter import export_monthly_report_pdf
 from core.report_service import build_monthly_report
 from qt_app.segnalazioni_pdf import render_segnalazione_pdf
+from qt_app.sopralluoghi_pdf import render_sopralluogo_pdf
 
 
 class DashboardWorker(QObject):
@@ -67,6 +68,24 @@ class SegnalazionePdfWorker(QObject):
     def run(self) -> None:
         try:
             self.finished.emit(render_segnalazione_pdf(self.payload, self.output_path))
+        except Exception as exc:
+            self.failed.emit(str(exc) or "Errore non specificato")
+
+
+class SopralluogoPdfWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, segnalazione, sopralluogo, output_path):
+        super().__init__()
+        self.segnalazione = segnalazione
+        self.sopralluogo = sopralluogo
+        self.output_path = output_path
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(render_sopralluogo_pdf(self.segnalazione, self.sopralluogo, self.output_path))
         except Exception as exc:
             self.failed.emit(str(exc) or "Errore non specificato")
 
