@@ -45,7 +45,7 @@ from core.fascicoli import (
     list_attachments,
     open_path,
 )
-from core.sopralluoghi import STATI_SOPRALLUOGO
+from core.sopralluoghi import STATI_SOPRALLUOGO, list_for_segnalazione
 import segnalazioni as segn_mod
 from segnalazioni import (
     CATEGORIA_DEFAULT,
@@ -228,7 +228,12 @@ class SegnalazioneEditDialog(QDialog):
 
 
 class SegnalazioneWorkflowDialog(QDialog):
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        seg: Segnalazione | None = None,
+        workflow: dict[str, object] | None = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Guida procedura segnalazione e sopralluogo")
         self.setModal(True)
@@ -242,6 +247,40 @@ class SegnalazioneWorkflowDialog(QDialog):
         title = QLabel("Procedura guidata")
         title.setStyleSheet("font-size: 16pt; font-weight: 700;")
         root.addWidget(title)
+
+        if seg is not None and workflow is not None:
+            summary = QFrame()
+            summary.setObjectName("SubPanel")
+            summary_layout = QVBoxLayout(summary)
+            summary_layout.setContentsMargins(12, 10, 12, 10)
+            summary_layout.setSpacing(8)
+            heading = QLabel(f"Segnalazione n. {seg.numero_progressivo} - avanzamento {workflow['percent']}%")
+            heading.setStyleSheet("font-weight: 700;")
+            summary_layout.addWidget(heading)
+            missing = workflow.get("missing", [])
+            missing_text = "Manca: " + "; ".join(missing[:5]) if missing else "Pratica completa: puoi verificare e archiviare."
+            missing_label = QLabel(missing_text)
+            missing_label.setObjectName("Muted")
+            missing_label.setWordWrap(True)
+            summary_layout.addWidget(missing_label)
+            root.addWidget(summary)
+
+            quick_actions = QHBoxLayout()
+            for label, callback in (
+                ("Modifica segnalazione", getattr(parent, "edit_current_dialog", None)),
+                ("Crea/Verifica fascicolo", getattr(parent, "create_fascicolo", None)),
+                ("Aggiungi foto", lambda: parent.add_fascicolo_files("foto") if parent is not None else None),
+                ("Esporta PDF", getattr(parent, "export_selected_pdf", None)),
+                ("Nuovo sopralluogo", lambda: parent.open_sopralluoghi(True) if parent is not None else None),
+            ):
+                if callback is None:
+                    continue
+                button = QPushButton(label)
+                button.setProperty("secondary", "true")
+                button.clicked.connect(callback)
+                quick_actions.addWidget(button)
+            quick_actions.addStretch(1)
+            root.addLayout(quick_actions)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -478,6 +517,14 @@ class SegnalazioniPage(QWidget):
         self.workflow_hint.setObjectName("Muted")
         self.workflow_hint.setWordWrap(True)
         guide_layout.addWidget(self.workflow_hint)
+        self.workflow_progress = QLabel("Seleziona una segnalazione per vedere lo stato della procedura.")
+        self.workflow_progress.setStyleSheet("font-weight: 700;")
+        self.workflow_progress.setWordWrap(True)
+        guide_layout.addWidget(self.workflow_progress)
+        self.workflow_missing = QLabel("")
+        self.workflow_missing.setObjectName("Muted")
+        self.workflow_missing.setWordWrap(True)
+        guide_layout.addWidget(self.workflow_missing)
         guide_button = QPushButton("Guida procedura")
         guide_button.setProperty("secondary", "true")
         guide_button.clicked.connect(self.show_workflow_guide)
@@ -708,6 +755,7 @@ class SegnalazioniPage(QWidget):
         self.verifica.setPlainText(seg.verifica_effettuata)
         self._set_form_editable(seg.stato == "in_corso")
         self.update_fascicolo_status()
+        self.update_workflow_status()
 
     def clear_detail(self) -> None:
         self.selected_numero = None
@@ -721,6 +769,8 @@ class SegnalazioniPage(QWidget):
         self.closed_table.clearSelection()
         self._set_form_editable(False)
         self.fascicolo_status.setText("Fascicolo: non creato")
+        self.workflow_progress.setText("Seleziona una segnalazione per vedere lo stato della procedura.")
+        self.workflow_missing.setText("")
 
     def _set_form_editable(self, editable: bool) -> None:
         self.save_button.setText("Modifica dati")
@@ -740,7 +790,8 @@ class SegnalazioniPage(QWidget):
         self.request_sopralluoghi.emit(seg.numero_progressivo, create_new, luogo)
 
     def show_workflow_guide(self) -> None:
-        dialog = SegnalazioneWorkflowDialog(self)
+        seg = self.selected_report()
+        dialog = SegnalazioneWorkflowDialog(self, seg, self.workflow_state(seg) if seg is not None else None)
         dialog.exec()
 
     def new_report(self) -> None:
@@ -892,6 +943,7 @@ class SegnalazioniPage(QWidget):
         seg = self.selected_report()
         if seg is None:
             self.fascicolo_status.setText("Fascicolo: non creato")
+            self.update_workflow_status()
             return
         try:
             path = get_fascicolo_path(seg.numero_progressivo)
@@ -904,6 +956,66 @@ class SegnalazioniPage(QWidget):
                 self.fascicolo_status.setText(f"Fascicolo: non creato - Allegati: {len(attachments)}")
         except Exception:
             self.fascicolo_status.setText("Fascicolo: errore lettura")
+        self.update_workflow_status()
+
+    def update_workflow_status(self) -> None:
+        seg = self.selected_report()
+        if seg is None:
+            self.workflow_progress.setText("Seleziona una segnalazione per vedere lo stato della procedura.")
+            self.workflow_missing.setText("")
+            return
+        state = self.workflow_state(seg)
+        self.workflow_progress.setText(
+            f"Avanzamento procedura: {state['percent']}% ({state['done']}/{state['total']} passaggi completati)"
+        )
+        missing = state.get("missing", [])
+        if missing:
+            self.workflow_missing.setText("Manca: " + "; ".join(missing[:4]))
+        else:
+            self.workflow_missing.setText("Tutti i passaggi principali risultano completati.")
+
+    def workflow_state(self, seg: Segnalazione) -> dict[str, object]:
+        missing: list[str] = []
+        checks: list[bool] = []
+
+        def add_check(done: bool, missing_text: str) -> None:
+            checks.append(done)
+            if not done:
+                missing.append(missing_text)
+
+        attachments = []
+        sopralluoghi = []
+        try:
+            attachments = list_attachments(seg.numero_progressivo)
+        except Exception:
+            attachments = []
+        try:
+            sopralluoghi = list_for_segnalazione(seg.numero_progressivo)
+        except Exception:
+            sopralluoghi = []
+
+        has_photo = any(item.tipo == "foto" for item in attachments)
+        has_document = any(item.tipo in {"documento", "allegato"} for item in attachments)
+        has_sopralluogo_pdf = any(item.tipo == "scheda_sopralluogo" for item in attachments)
+        has_sopralluogo = bool(sopralluoghi)
+        has_completed_sopralluogo = any(
+            item.stato in {"effettuato", "chiuso"} and (item.esito.strip() or item.note_operative.strip())
+            for item in sopralluoghi
+        )
+
+        add_check(bool(seg.nominativo.strip() or seg.indirizzo.strip() or seg.telefono.strip()), "compilare i dati del segnalante o del luogo")
+        add_check(bool(seg.descrizione_segnalazione.strip()), "inserire la descrizione della segnalazione")
+        add_check(bool(seg.categoria and seg.priorita and seg.stato_lavorazione), "classificare categoria, priorita e stato lavorazione")
+        add_check(fascicolo_exists(seg.numero_progressivo), "creare/verificare il fascicolo digitale")
+        add_check(has_photo or has_document, "allegare almeno una foto o un documento")
+        add_check(has_sopralluogo, "creare il sopralluogo collegato")
+        add_check(has_completed_sopralluogo, "compilare esito o note del sopralluogo effettuato")
+        add_check(has_sopralluogo_pdf or seg.stato == "archiviata", "generare il verbale PDF del sopralluogo o archiviare a pratica completa")
+
+        done = sum(1 for item in checks if item)
+        total = len(checks)
+        percent = round((done / total) * 100) if total else 0
+        return {"done": done, "total": total, "percent": percent, "missing": missing}
 
     def create_fascicolo(self) -> None:
         seg = self.selected_report()
