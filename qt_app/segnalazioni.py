@@ -282,6 +282,26 @@ class SegnalazioneWorkflowDialog(QDialog):
             quick_actions.addStretch(1)
             root.addLayout(quick_actions)
 
+            active_steps = workflow.get("steps", [])
+            if isinstance(active_steps, list):
+                checklist = QFrame()
+                checklist.setObjectName("SubPanel")
+                checklist_layout = QVBoxLayout(checklist)
+                checklist_layout.setContentsMargins(12, 10, 12, 10)
+                checklist_layout.setSpacing(6)
+                checklist_title = QLabel("Stato passaggi")
+                checklist_title.setStyleSheet("font-weight: 700;")
+                checklist_layout.addWidget(checklist_title)
+                for step in active_steps:
+                    if not isinstance(step, dict):
+                        continue
+                    marker = "OK" if step.get("done") else "Da fare"
+                    row = QLabel(f"{marker} - {step.get('title', '')}")
+                    row.setObjectName("Muted" if step.get("done") else "")
+                    row.setWordWrap(True)
+                    checklist_layout.addWidget(row)
+                root.addWidget(checklist)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         body = QWidget()
@@ -525,10 +545,16 @@ class SegnalazioniPage(QWidget):
         self.workflow_missing.setObjectName("Muted")
         self.workflow_missing.setWordWrap(True)
         guide_layout.addWidget(self.workflow_missing)
+        guide_actions = QHBoxLayout()
+        continue_button = QPushButton("Continua procedura")
+        continue_button.clicked.connect(self.continue_workflow)
         guide_button = QPushButton("Guida procedura")
         guide_button.setProperty("secondary", "true")
         guide_button.clicked.connect(self.show_workflow_guide)
-        guide_layout.addWidget(guide_button)
+        guide_actions.addWidget(continue_button)
+        guide_actions.addWidget(guide_button)
+        guide_actions.addStretch(1)
+        guide_layout.addLayout(guide_actions)
         layout.addWidget(guide_box)
 
         fascicolo_box = QFrame()
@@ -976,10 +1002,10 @@ class SegnalazioniPage(QWidget):
 
     def workflow_state(self, seg: Segnalazione) -> dict[str, object]:
         missing: list[str] = []
-        checks: list[bool] = []
+        steps: list[dict[str, object]] = []
 
-        def add_check(done: bool, missing_text: str) -> None:
-            checks.append(done)
+        def add_step(step_id: str, title: str, done: bool, missing_text: str, action: str) -> None:
+            steps.append({"id": step_id, "title": title, "done": done, "missing": missing_text, "action": action})
             if not done:
                 missing.append(missing_text)
 
@@ -996,6 +1022,10 @@ class SegnalazioniPage(QWidget):
 
         has_photo = any(item.tipo == "foto" for item in attachments)
         has_document = any(item.tipo in {"documento", "allegato"} for item in attachments)
+        has_segnalazione_pdf = any(
+            item.tipo == "documento" and "segnalazione" in item.nome_file.lower()
+            for item in attachments
+        )
         has_sopralluogo_pdf = any(item.tipo == "scheda_sopralluogo" for item in attachments)
         has_sopralluogo = bool(sopralluoghi)
         has_completed_sopralluogo = any(
@@ -1003,19 +1033,47 @@ class SegnalazioniPage(QWidget):
             for item in sopralluoghi
         )
 
-        add_check(bool(seg.nominativo.strip() or seg.indirizzo.strip() or seg.telefono.strip()), "compilare i dati del segnalante o del luogo")
-        add_check(bool(seg.descrizione_segnalazione.strip()), "inserire la descrizione della segnalazione")
-        add_check(bool(seg.categoria and seg.priorita and seg.stato_lavorazione), "classificare categoria, priorita e stato lavorazione")
-        add_check(fascicolo_exists(seg.numero_progressivo), "creare/verificare il fascicolo digitale")
-        add_check(has_photo or has_document, "allegare almeno una foto o un documento")
-        add_check(has_sopralluogo, "creare il sopralluogo collegato")
-        add_check(has_completed_sopralluogo, "compilare esito o note del sopralluogo effettuato")
-        add_check(has_sopralluogo_pdf or seg.stato == "archiviata", "generare il verbale PDF del sopralluogo o archiviare a pratica completa")
+        add_step("report_data", "Compila dati segnalazione", bool(seg.nominativo.strip() or seg.indirizzo.strip() or seg.telefono.strip()), "compilare i dati del segnalante o del luogo", "edit_report")
+        add_step("description", "Inserisci descrizione", bool(seg.descrizione_segnalazione.strip()), "inserire la descrizione della segnalazione", "edit_report")
+        add_step("classification", "Classifica pratica", bool(seg.categoria and seg.priorita and seg.stato_lavorazione), "classificare categoria, priorita e stato lavorazione", "edit_report")
+        add_step("folder", "Crea fascicolo digitale", fascicolo_exists(seg.numero_progressivo), "creare/verificare il fascicolo digitale", "create_fascicolo")
+        add_step("attachments", "Allega foto o documenti", has_photo or has_document, "allegare almeno una foto o un documento", "add_photo")
+        add_step("report_pdf", "Genera PDF segnalazione", has_segnalazione_pdf, "generare il PDF della segnalazione", "export_pdf")
+        add_step("inspection", "Crea sopralluogo collegato", has_sopralluogo, "creare il sopralluogo collegato", "new_sopralluogo")
+        add_step("inspection_result", "Compila esito sopralluogo", has_completed_sopralluogo, "compilare esito o note del sopralluogo effettuato", "open_sopralluoghi")
+        add_step("inspection_pdf", "Genera verbale sopralluogo", has_sopralluogo_pdf or seg.stato == "archiviata", "generare il verbale PDF del sopralluogo o archiviare a pratica completa", "open_sopralluoghi")
 
-        done = sum(1 for item in checks if item)
-        total = len(checks)
+        done = sum(1 for item in steps if item["done"])
+        total = len(steps)
         percent = round((done / total) * 100) if total else 0
-        return {"done": done, "total": total, "percent": percent, "missing": missing}
+        next_step = next((item for item in steps if not item["done"]), None)
+        return {"done": done, "total": total, "percent": percent, "missing": missing, "steps": steps, "next_step": next_step}
+
+    def continue_workflow(self) -> None:
+        seg = self.selected_report()
+        if seg is None:
+            QMessageBox.information(self, "Selezione richiesta", "Seleziona una segnalazione da seguire.")
+            return
+        state = self.workflow_state(seg)
+        next_step = state.get("next_step")
+        if not isinstance(next_step, dict):
+            QMessageBox.information(self, "Procedura completa", "I passaggi principali risultano completati.")
+            return
+        action = str(next_step.get("action", ""))
+        if action == "edit_report":
+            self.edit_current_dialog()
+        elif action == "create_fascicolo":
+            self.create_fascicolo()
+        elif action == "add_photo":
+            self.add_fascicolo_files("foto")
+        elif action == "export_pdf":
+            self.export_selected_pdf()
+        elif action == "new_sopralluogo":
+            self.open_sopralluoghi(True)
+        elif action == "open_sopralluoghi":
+            self.open_sopralluoghi(False)
+        else:
+            self.show_workflow_guide()
 
     def create_fascicolo(self) -> None:
         seg = self.selected_report()

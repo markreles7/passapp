@@ -12,6 +12,7 @@ from core.fascicoli import (
     list_attachments,
     load_registry,
     safe_windows_name,
+    update_attachment_description,
 )
 
 
@@ -101,6 +102,28 @@ class TestFascicoli(unittest.TestCase):
 
             self.assertTrue(output.exists())
             self.assertIn("Scheda fotografica", output.read_text(encoding="utf-8"))
+
+    def test_update_attachment_description_is_used_in_photo_sheet(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            base_dir = root / "fascicoli"
+            registry = root / "fascicoli.json"
+            source = root / "foto.jpg"
+            source.write_bytes(b"image")
+            segnalazione = SegnalazioneStub()
+            item = add_attachment(segnalazione, source, "foto", registry_path=registry, base_dir=base_dir)
+
+            updated = update_attachment_description(
+                segnalazione.numero_progressivo,
+                item.id_allegato,
+                "Dissesto sul lato nord",
+                registry_path=registry,
+            )
+            output = generate_photo_sheet_html(segnalazione, registry, base_dir)
+            html = output.read_text(encoding="utf-8")
+
+            self.assertEqual(updated.descrizione, "Dissesto sul lato nord")
+            self.assertIn("Dissesto sul lato nord", html)
 
 
 if __name__ == "__main__":

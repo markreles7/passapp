@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 import subprocess
@@ -19,10 +20,11 @@ SEGNALAZIONI_PDF_DIR = resolve_path(PATHS["segnalazioni_pdf_dir"])
 def safe_pdf_filename(value: str) -> str:
     text = re.sub(r"\s+", "_", str(value or "").strip())
     text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
+    text = re.sub(r"_+", "_", text)
     return text.strip("._") or "sopralluogo"
 
 
-def build_pdf_payload(segnalazione, item: Sopralluogo) -> dict[str, Any]:
+def build_pdf_payload(segnalazione, item: Sopralluogo, registry_path: Path | None = None) -> dict[str, Any]:
     data_seg = "/".join(
         part
         for part in (
@@ -36,7 +38,7 @@ def build_pdf_payload(segnalazione, item: Sopralluogo) -> dict[str, Any]:
     if item.ora_sopralluogo:
         data_ora = f"{data_ora} - {item.ora_sopralluogo}"
 
-    attachments = list_attachments(int(getattr(segnalazione, "numero_progressivo")))
+    attachments = list_attachments(int(getattr(segnalazione, "numero_progressivo")), registry_path=registry_path) if registry_path else list_attachments(int(getattr(segnalazione, "numero_progressivo")))
     photos = []
     documents = []
     for attachment in attachments:
@@ -71,6 +73,12 @@ def build_pdf_payload(segnalazione, item: Sopralluogo) -> dict[str, Any]:
         "ufficio": value_or_dash(item.ufficio_destinatario),
         "foto_items": photos,
         "documenti": documents,
+        "data_generazione": dt.date.today().strftime("%d/%m/%Y"),
+        "oggetto_verbale": f"Sopralluogo relativo alla segnalazione n. {getattr(segnalazione, 'numero_progressivo')}",
+        "foto_count": str(len(photos)),
+        "documenti_count": str(len(documents)),
+        "allegati_count": str(len(photos) + len(documents)),
+        "firma_operatori": value_or_dash(item.operatori),
     }
 
 
@@ -108,6 +116,12 @@ function Add-Info {
     $Selection.TypeParagraph()
 }
 
+function Add-Section {
+    param([object]$Selection, [string]$Text)
+    Add-Paragraph -Selection $Selection -Text $Text -Size 10 -Bold $true -SpaceAfter 1
+    Add-Paragraph -Selection $Selection -Text "________________________________________________________________________________" -Size 6 -SpaceAfter 4
+}
+
 function Add-PageBreak {
     param([object]$Selection)
     $Selection.InsertBreak(7)
@@ -131,7 +145,12 @@ function Add-Photo {
             $shape.Width = $shape.Width * $ratio
         }
         $Selection.TypeParagraph()
-        Add-Paragraph -Selection $Selection -Text ("Foto: " + [string]$Photo.nome_file + " - " + [string]$Photo.origine) -Size 8 -SpaceAfter 6
+        Add-Paragraph -Selection $Selection -Text ("Foto: " + [string]$Photo.nome_file + " - " + [string]$Photo.origine) -Size 8 -Bold $true -SpaceAfter 1
+        if ([string]$Photo.descrizione -ne "") {
+            Add-Paragraph -Selection $Selection -Text ([string]$Photo.descrizione) -Size 8 -SpaceAfter 6
+        } else {
+            Add-Paragraph -Selection $Selection -Text "Descrizione non indicata." -Size 8 -SpaceAfter 6
+        }
     } catch {
         Add-Paragraph -Selection $Selection -Text ("Foto non inserita: " + [string]$Photo.nome_file) -Size 8 -SpaceAfter 4
     }
@@ -150,19 +169,22 @@ try {
     $pageSetup.LeftMargin = $word.CentimetersToPoints(1.4)
     $pageSetup.RightMargin = $word.CentimetersToPoints(1.4)
 
-    Add-Paragraph -Selection $sel -Text "COMUNE DI PEGOGNAGA" -Size 12 -Bold $true -Alignment 1 -SpaceAfter 1
-    Add-Paragraph -Selection $sel -Text "Polizia Locale" -Size 10 -Bold $true -Alignment 1 -SpaceAfter 2
-    Add-Paragraph -Selection $sel -Text "VERBALE DI SOPRALLUOGO" -Size 13 -Bold $true -Alignment 1 -SpaceAfter 8
+    Add-Paragraph -Selection $sel -Text "COMUNE DI PEGOGNAGA" -Size 13 -Bold $true -Alignment 1 -SpaceAfter 1
+    Add-Paragraph -Selection $sel -Text "Polizia Locale" -Size 10 -Bold $true -Alignment 1 -SpaceAfter 1
+    Add-Paragraph -Selection $sel -Text "VERBALE DI SOPRALLUOGO" -Size 14 -Bold $true -Alignment 1 -SpaceAfter 2
+    Add-Paragraph -Selection $sel -Text ("Generato il " + $payload.data_generazione) -Size 8 -Alignment 1 -SpaceAfter 8
 
-    Add-Paragraph -Selection $sel -Text "Dati segnalazione" -Size 10 -Bold $true -SpaceAfter 2
+    Add-Section -Selection $sel -Text "Oggetto"
+    Add-Paragraph -Selection $sel -Text $payload.oggetto_verbale -Size 9 -SpaceAfter 4
+
+    Add-Section -Selection $sel -Text "Dati segnalazione"
     Add-Info -Selection $sel -Label "Segnalazione n.: " -Value $payload.segnalazione_numero
     Add-Info -Selection $sel -Label "Data ricezione: " -Value $payload.segnalazione_data
     Add-Info -Selection $sel -Label "Segnalante: " -Value $payload.segnalante
     Add-Info -Selection $sel -Label "Luogo segnalato: " -Value $payload.indirizzo_segnalazione
     Add-Info -Selection $sel -Label "Oggetto: " -Value $payload.descrizione
-    Add-Paragraph -Selection $sel -Text "" -SpaceAfter 4
 
-    Add-Paragraph -Selection $sel -Text "Dati sopralluogo" -Size 10 -Bold $true -SpaceAfter 2
+    Add-Section -Selection $sel -Text "Dati sopralluogo"
     Add-Info -Selection $sel -Label "ID sopralluogo: " -Value $payload.id_sopralluogo
     Add-Info -Selection $sel -Label "Stato: " -Value $payload.stato
     Add-Info -Selection $sel -Label "Data/Ora: " -Value $payload.data_ora
@@ -173,13 +195,27 @@ try {
     Add-Info -Selection $sel -Label "Foto/allegati: " -Value $payload.foto
     Add-Info -Selection $sel -Label "Ulteriori atti: " -Value $payload.atti
     Add-Info -Selection $sel -Label "Ufficio destinatario: " -Value $payload.ufficio
-    Add-Paragraph -Selection $sel -Text "" -SpaceAfter 4
 
-    Add-Paragraph -Selection $sel -Text "Verbale operativo" -Size 10 -Bold $true -SpaceAfter 2
+    Add-Section -Selection $sel -Text "Verbale operativo"
     Add-Paragraph -Selection $sel -Text ("In data " + $payload.data_ora + " l'operatore/gli operatori indicati hanno effettuato il sopralluogo presso il luogo sopra riportato, in relazione alla segnalazione n. " + $payload.segnalazione_numero + ".") -Size 9 -SpaceAfter 3
-    Add-Paragraph -Selection $sel -Text ("Esito sintetico: " + $payload.esito) -Size 9 -SpaceAfter 3
-    Add-Paragraph -Selection $sel -Text ("Note operative: " + $payload.note) -Size 9 -SpaceAfter 3
-    Add-Paragraph -Selection $sel -Text ("Necessita di ulteriori atti: " + $payload.atti + ". Ufficio destinatario: " + $payload.ufficio + ".") -Size 9 -SpaceAfter 3
+    Add-Paragraph -Selection $sel -Text "Esito del sopralluogo" -Size 9 -Bold $true -SpaceAfter 1
+    Add-Paragraph -Selection $sel -Text $payload.esito -Size 9 -SpaceAfter 4
+    Add-Paragraph -Selection $sel -Text "Note operative" -Size 9 -Bold $true -SpaceAfter 1
+    Add-Paragraph -Selection $sel -Text $payload.note -Size 9 -SpaceAfter 4
+    Add-Paragraph -Selection $sel -Text "Determinazioni e seguito pratica" -Size 9 -Bold $true -SpaceAfter 1
+    Add-Paragraph -Selection $sel -Text ("Necessita di ulteriori atti: " + $payload.atti + ". Ufficio destinatario: " + $payload.ufficio + ".") -Size 9 -SpaceAfter 6
+
+    Add-Section -Selection $sel -Text "Riepilogo allegati"
+    Add-Info -Selection $sel -Label "Foto nel fascicolo: " -Value $payload.foto_count
+    Add-Info -Selection $sel -Label "Documenti/allegati: " -Value $payload.documenti_count
+    Add-Info -Selection $sel -Label "Totale allegati richiamati: " -Value $payload.allegati_count
+    Add-Paragraph -Selection $sel -Text "Il presente verbale richiama gli allegati presenti nel fascicolo digitale della segnalazione alla data di generazione." -Size 8 -SpaceAfter 8
+
+    Add-Section -Selection $sel -Text "Sottoscrizione"
+    Add-Paragraph -Selection $sel -Text "Letto, confermato e sottoscritto." -Size 9 -SpaceAfter 10
+    Add-Paragraph -Selection $sel -Text "L'operatore / Gli operatori" -Size 9 -Bold $true -SpaceAfter 2
+    Add-Paragraph -Selection $sel -Text $payload.firma_operatori -Size 9 -SpaceAfter 12
+    Add-Paragraph -Selection $sel -Text "Firma: ________________________________________________" -Size 9 -SpaceAfter 4
 
     Add-PageBreak -Selection $sel
     Add-Paragraph -Selection $sel -Text "SCHEDA FOTOGRAFICA" -Size 12 -Bold $true -Alignment 1 -SpaceAfter 8

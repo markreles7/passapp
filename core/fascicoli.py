@@ -196,6 +196,22 @@ def delete_attachment(
     return attachment
 
 
+def update_attachment_description(
+    segnalazione_id: int,
+    id_allegato: int,
+    descrizione: str,
+    *,
+    registry_path: Path = FASCICOLI_FILE,
+) -> FascicoloAttachment:
+    registry = load_registry(registry_path)
+    for raw in registry["allegati"]:
+        if int(raw.get("segnalazione_id", 0)) == int(segnalazione_id) and int(raw.get("id_allegato", 0)) == int(id_allegato):
+            raw["descrizione"] = str(descrizione or "").strip()
+            save_registry(registry, registry_path)
+            return _attachment_from_dict(raw)
+    raise FileNotFoundError(f"Allegato {id_allegato} non trovato")
+
+
 def generate_photo_sheet_html(
     segnalazione,
     registry_path: Path = FASCICOLI_FILE,

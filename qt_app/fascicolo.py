@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -11,13 +12,17 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from core.audit import log_audit_event
 from core.fascicoli import (
+    PHOTO_EXTENSIONS,
     add_attachment,
     delete_attachment,
     ensure_fascicolo,
@@ -27,6 +32,7 @@ from core.fascicoli import (
     list_attachments,
     open_path,
     relative_to_path,
+    update_attachment_description,
 )
 
 
@@ -35,8 +41,8 @@ class FascicoloDialog(QDialog):
         super().__init__(parent)
         self.segnalazione = segnalazione
         self.setWindowTitle(f"Fascicolo digitale - Segnalazione n. {segnalazione.numero_progressivo}")
-        self.resize(920, 560)
-        self.setMinimumSize(760, 460)
+        self.resize(1080, 640)
+        self.setMinimumSize(860, 520)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
@@ -68,14 +74,58 @@ class FascicoloDialog(QDialog):
         actions.addStretch(1)
         layout.addLayout(actions)
 
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(("Tipo", "Nome file", "Data aggiunta", "Origine"))
+        splitter = QSplitter(Qt.Horizontal)
+
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(("Tipo", "Nome file", "Data aggiunta", "Origine", "Descrizione"))
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.itemSelectionChanged.connect(self.update_preview)
         self.table.doubleClicked.connect(lambda _index: self.open_selected())
-        layout.addWidget(self.table, 1)
+        splitter.addWidget(self.table)
+
+        preview_panel = QWidget()
+        preview_layout = QVBoxLayout(preview_panel)
+        preview_layout.setContentsMargins(12, 0, 0, 0)
+        preview_layout.setSpacing(10)
+        preview_title = QLabel("Dettaglio foto/allegato")
+        preview_title.setStyleSheet("font-weight: 700;")
+        preview_layout.addWidget(preview_title)
+
+        self.preview_image = QLabel("Seleziona una foto per vedere l'anteprima")
+        self.preview_image.setObjectName("SubPanel")
+        self.preview_image.setAlignment(Qt.AlignCenter)
+        self.preview_image.setMinimumSize(300, 220)
+        self.preview_image.setWordWrap(True)
+        preview_layout.addWidget(self.preview_image)
+
+        self.preview_meta = QLabel("")
+        self.preview_meta.setObjectName("Muted")
+        self.preview_meta.setWordWrap(True)
+        preview_layout.addWidget(self.preview_meta)
+
+        preview_layout.addWidget(QLabel("Descrizione / didascalia"))
+        self.description_edit = QTextEdit()
+        self.description_edit.setMinimumHeight(110)
+        preview_layout.addWidget(self.description_edit)
+
+        description_actions = QHBoxLayout()
+        save_desc_button = QPushButton("Salva descrizione")
+        save_desc_button.clicked.connect(self.save_description)
+        open_button = QPushButton("Apri file")
+        open_button.setProperty("secondary", "true")
+        open_button.clicked.connect(self.open_selected)
+        description_actions.addWidget(save_desc_button)
+        description_actions.addWidget(open_button)
+        description_actions.addStretch(1)
+        preview_layout.addLayout(description_actions)
+        preview_layout.addStretch(1)
+        splitter.addWidget(preview_panel)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+        layout.addWidget(splitter, 1)
 
         footer = QHBoxLayout()
         close_button = QPushButton("Chiudi")
@@ -105,13 +155,14 @@ class FascicoloDialog(QDialog):
             origin = item.origine
             if item.sopralluogo_id:
                 origin = f"{origin} #{item.sopralluogo_id}"
-            values = (item.tipo, item.nome_file, item.data_aggiunta, origin)
+            values = (item.tipo, item.nome_file, item.data_aggiunta, origin, item.descrizione)
             for column, value in enumerate(values):
                 table_item = QTableWidgetItem(str(value))
                 if column == 0:
                     table_item.setData(Qt.UserRole, item.id_allegato)
                 self.table.setItem(row, column, table_item)
         self.table.resizeColumnsToContents()
+        self.update_preview()
 
     def selected_attachment(self):
         row = self.table.currentRow()
@@ -177,6 +228,61 @@ class FascicoloDialog(QDialog):
             open_path(relative_to_path(item.relative_path))
         except Exception as exc:
             QMessageBox.critical(self, "Apertura non riuscita", f"Impossibile aprire il file.\n\n{exc}")
+
+    def update_preview(self) -> None:
+        item = self.selected_attachment()
+        if item is None:
+            self.preview_image.setPixmap(QPixmap())
+            self.preview_image.setText("Seleziona una foto per vedere l'anteprima")
+            self.preview_meta.setText("")
+            self.description_edit.clear()
+            self.description_edit.setEnabled(False)
+            return
+        self.description_edit.setEnabled(True)
+        self.description_edit.setPlainText(item.descrizione)
+        path = relative_to_path(item.relative_path)
+        origin = item.origine
+        if item.sopralluogo_id:
+            origin = f"{origin} #{item.sopralluogo_id}"
+        self.preview_meta.setText(
+            "\n".join(
+                (
+                    f"Tipo: {item.tipo}",
+                    f"Origine: {origin}",
+                    f"File: {item.nome_file}",
+                    f"Percorso: {path}",
+                )
+            )
+        )
+        if item.tipo == "foto" and path.suffix.lower() in PHOTO_EXTENSIONS and path.exists():
+            pixmap = QPixmap(str(path))
+            if not pixmap.isNull():
+                self.preview_image.setText("")
+                self.preview_image.setPixmap(pixmap.scaled(340, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                return
+        self.preview_image.setPixmap(QPixmap())
+        self.preview_image.setText("Anteprima non disponibile per questo file")
+
+    def save_description(self) -> None:
+        item = self.selected_attachment()
+        if item is None:
+            QMessageBox.information(self, "Selezione richiesta", "Seleziona una foto o un allegato.")
+            return
+        try:
+            updated = update_attachment_description(
+                self.segnalazione.numero_progressivo,
+                item.id_allegato,
+                self.description_edit.toPlainText(),
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Descrizione non salvata", f"Impossibile salvare la descrizione.\n\n{exc}")
+            return
+        self._audit(
+            "update_attachment_description",
+            "Aggiornata descrizione allegato/foto",
+            extra={"tipo": updated.tipo, "nome_file": updated.nome_file},
+        )
+        self.refresh()
 
     def delete_selected(self) -> None:
         item = self.selected_attachment()

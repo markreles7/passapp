@@ -1,6 +1,7 @@
 import unittest
 
 from segnalazioni import Segnalazione, SegnalazioniFrame
+from qt_app.segnalazioni import SegnalazioniPage
 
 
 class _NotebookStub:
@@ -47,6 +48,23 @@ class TestSegnalazioniWorkflow(unittest.TestCase):
 
         self.assertEqual(seg.stato, "in_corso")
         self.assertEqual(save_calls, [])
+
+    def test_qt_workflow_state_exposes_next_action(self):
+        page = SegnalazioniPage.__new__(SegnalazioniPage)
+        seg = Segnalazione(
+            numero_progressivo=987654,
+            anno="2026",
+            mese="05",
+            giorno="05",
+            ora="10:00",
+            stato="in_corso",
+        )
+
+        state = page.workflow_state(seg)
+
+        self.assertEqual(state["total"], 9)
+        self.assertEqual(state["next_step"]["action"], "edit_report")
+        self.assertIn("steps", state)
 
 
 if __name__ == "__main__":
