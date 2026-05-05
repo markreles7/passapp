@@ -8,6 +8,7 @@ from core.fascicoli import (
     build_fascicolo_folder_name,
     delete_attachment,
     ensure_fascicolo,
+    generate_photo_sheet_doc,
     generate_photo_sheet_html,
     list_attachments,
     load_registry,
@@ -124,6 +125,26 @@ class TestFascicoli(unittest.TestCase):
 
             self.assertEqual(updated.descrizione, "Dissesto sul lato nord")
             self.assertIn("Dissesto sul lato nord", html)
+
+    def test_generate_photo_sheet_doc_falls_back_to_html_without_template(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            base_dir = root / "fascicoli"
+            registry = root / "fascicoli.json"
+            source = root / "foto.jpg"
+            source.write_bytes(b"image")
+            segnalazione = SegnalazioneStub()
+            add_attachment(segnalazione, source, "foto", registry_path=registry, base_dir=base_dir)
+
+            output = generate_photo_sheet_doc(
+                segnalazione,
+                registry_path=registry,
+                base_dir=base_dir,
+                template_path=root / "template_mancante.doc",
+            )
+
+            self.assertEqual(output.suffix.lower(), ".html")
+            self.assertTrue(output.exists())
 
 
 if __name__ == "__main__":

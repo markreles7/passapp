@@ -110,7 +110,26 @@ def build_app_stylesheet(config: dict) -> str:
         border: 1px solid {theme["border"]};
         border-radius: 6px;
         gridline-color: {theme["border"]};
-        selection-background-color: #DDEBFF;
+        selection-background-color: #EEF0F3;
+        selection-color: {theme["text"]};
+        outline: 0;
+    }}
+
+    QTableWidget::item {{
+        border: 0;
+        padding: 2px 4px;
+    }}
+
+    QTableWidget::item:selected {{
+        background: #EEF0F3;
+        color: {theme["text"]};
+        border: 0;
+        outline: 0;
+    }}
+
+    QTableWidget::item:focus {{
+        border: 0;
+        outline: 0;
     }}
 
     QHeaderView::section {{

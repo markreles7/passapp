@@ -15,6 +15,7 @@ from core.sopralluoghi import Sopralluogo
 APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
 SEGNALAZIONI_PDF_DIR = resolve_path(PATHS["segnalazioni_pdf_dir"])
+VERBALE_SOPRALLUOGO_TEMPLATE = resolve_path(PATHS.get("verbale_sopralluogo_template", "templates/verbale_sopralluogo.doc"))
 
 
 def safe_pdf_filename(value: str) -> str:
@@ -86,6 +87,8 @@ def render_sopralluogo_pdf(segnalazione, item: Sopralluogo, output_pdf: Path) ->
     output_pdf = Path(output_pdf)
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     payload = build_pdf_payload(segnalazione, item)
+    if VERBALE_SOPRALLUOGO_TEMPLATE.exists():
+        return render_sopralluogo_pdf_from_template(VERBALE_SOPRALLUOGO_TEMPLATE, payload, output_pdf)
     ps_script = r"""
 param(
     [Parameter(Mandatory = $true)][string]$PdfPath,
@@ -289,3 +292,173 @@ def attachment_origin_text(attachment) -> str:
 def value_or_dash(value: str) -> str:
     text = str(value or "").strip()
     return text if text else "-"
+
+
+def render_sopralluogo_pdf_from_template(template_path: Path, payload: dict[str, Any], output_pdf: Path) -> Path:
+    ps_script = r"""
+param(
+    [Parameter(Mandatory = $true)][string]$TemplatePath,
+    [Parameter(Mandatory = $true)][string]$PdfPath,
+    [Parameter(Mandatory = $true)][string]$PayloadPath
+)
+$ErrorActionPreference = "Stop"
+$payload = Get-Content -Path $PayloadPath -Raw -Encoding UTF8 | ConvertFrom-Json
+
+function Add-Paragraph {
+    param([object]$Selection, [string]$Text, [int]$Size = 10, [bool]$Bold = $false, [int]$Alignment = 0, [int]$SpaceAfter = 4)
+    $Selection.ParagraphFormat.Alignment = $Alignment
+    $Selection.ParagraphFormat.SpaceAfter = $SpaceAfter
+    $Selection.Font.Name = "Calibri"
+    $Selection.Font.Size = $Size
+    $Selection.Font.Bold = if ($Bold) { 1 } else { 0 }
+    $Selection.TypeText($Text)
+    $Selection.TypeParagraph()
+}
+
+function Replace-Token {
+    param([object]$Document, [string]$Token, [string]$Value)
+    $range = $Document.Content
+    $find = $range.Find
+    $find.ClearFormatting()
+    $find.Replacement.ClearFormatting()
+    [void]$find.Execute($Token, $false, $true, $false, $false, $false, $true, 1, $false, $Value, 2)
+}
+
+function Select-Placeholder {
+    param([object]$Document, [object]$Word, [string]$Token)
+    $range = $Document.Content
+    $find = $range.Find
+    $find.ClearFormatting()
+    if ($find.Execute($Token, $false, $true, $false, $false, $false, $true, 1)) {
+        $range.Text = ""
+        $range.Select()
+        return $true
+    }
+    $end = $Document.Range($Document.Content.End - 1, $Document.Content.End - 1)
+    $end.Select()
+    $Word.Selection.TypeParagraph()
+    return $false
+}
+
+function Add-Photo {
+    param([object]$Selection, [object]$Word, [object]$Photo)
+    if (-not (Test-Path ([string]$Photo.path))) { return }
+    try {
+        $shape = $Selection.InlineShapes.AddPicture([string]$Photo.path, $false, $true)
+        $maxWidth = $Word.CentimetersToPoints(15.5)
+        $maxHeight = $Word.CentimetersToPoints(9)
+        if ($shape.Width -gt $maxWidth) {
+            $ratio = $maxWidth / $shape.Width
+            $shape.Width = $maxWidth
+            $shape.Height = $shape.Height * $ratio
+        }
+        if ($shape.Height -gt $maxHeight) {
+            $ratio = $maxHeight / $shape.Height
+            $shape.Height = $maxHeight
+            $shape.Width = $shape.Width * $ratio
+        }
+        $Selection.TypeParagraph()
+        $caption = [string]$Photo.descrizione
+        if ($caption -eq "") { $caption = [string]$Photo.nome_file }
+        Add-Paragraph -Selection $Selection -Text $caption -Size 9 -SpaceAfter 8
+    } catch {
+        Add-Paragraph -Selection $Selection -Text ("Foto non inserita: " + [string]$Photo.nome_file) -Size 8 -SpaceAfter 4
+    }
+}
+
+$word = $null
+$doc = $null
+$workDoc = [System.IO.Path]::ChangeExtension($PdfPath, ".doc")
+try {
+    Copy-Item -Path $TemplatePath -Destination $workDoc -Force
+    $word = New-Object -ComObject Word.Application
+    $word.Visible = $false
+    $doc = $word.Documents.Open($workDoc)
+
+    $map = @{
+        "NUMERO_SEGNALAZIONE" = $payload.segnalazione_numero
+        "DATA_SEGNALAZIONE" = $payload.segnalazione_data
+        "SEGNALANTE" = $payload.segnalante
+        "INDIRIZZO" = $payload.indirizzo_segnalazione
+        "OGGETTO" = $payload.descrizione
+        "ID_SOPRALLUOGO" = $payload.id_sopralluogo
+        "DATA_ORA_SOPRALLUOGO" = $payload.data_ora
+        "LUOGO_SOPRALLUOGO" = $payload.luogo
+        "OPERATORI" = $payload.operatori
+        "ESITO" = $payload.esito
+        "NOTE" = $payload.note
+        "UFFICIO_DESTINATARIO" = $payload.ufficio
+        "ULTERIORI_ATTI" = $payload.atti
+        "DATA_GENERAZIONE" = $payload.data_generazione
+    }
+    foreach ($key in $map.Keys) {
+        Replace-Token -Document $doc -Token ("{{" + $key + "}}") -Value ([string]$map[$key])
+    }
+
+    [void](Select-Placeholder -Document $doc -Word $word -Token "{{DATI_VERBALE}}")
+    $sel = $word.Selection
+    Add-Paragraph -Selection $sel -Text "Dati riepilogativi del sopralluogo" -Size 11 -Bold $true -SpaceAfter 6
+    Add-Paragraph -Selection $sel -Text ("Segnalazione n. " + $payload.segnalazione_numero + " - " + $payload.indirizzo_segnalazione) -Size 10 -SpaceAfter 4
+    Add-Paragraph -Selection $sel -Text ("Data/Ora sopralluogo: " + $payload.data_ora) -Size 10 -SpaceAfter 4
+    Add-Paragraph -Selection $sel -Text ("Operatori: " + $payload.operatori) -Size 10 -SpaceAfter 4
+    Add-Paragraph -Selection $sel -Text "Esito" -Size 10 -Bold $true -SpaceAfter 2
+    Add-Paragraph -Selection $sel -Text ([string]$payload.esito) -Size 10 -SpaceAfter 4
+    Add-Paragraph -Selection $sel -Text "Note operative" -Size 10 -Bold $true -SpaceAfter 2
+    Add-Paragraph -Selection $sel -Text ([string]$payload.note) -Size 10 -SpaceAfter 6
+
+    [void](Select-Placeholder -Document $doc -Word $word -Token "{{FOTO}}")
+    $sel = $word.Selection
+    Add-Paragraph -Selection $sel -Text "Documentazione fotografica" -Size 11 -Bold $true -SpaceAfter 6
+    foreach ($photo in @($payload.foto_items)) {
+        Add-Photo -Selection $sel -Word $word -Photo $photo
+    }
+
+    [void](Select-Placeholder -Document $doc -Word $word -Token "{{ALLEGATI}}")
+    $sel = $word.Selection
+    Add-Paragraph -Selection $sel -Text "Allegati richiamati" -Size 11 -Bold $true -SpaceAfter 6
+    Add-Paragraph -Selection $sel -Text ("Foto: " + $payload.foto_count + " - Documenti: " + $payload.documenti_count) -Size 9 -SpaceAfter 4
+    foreach ($document in @($payload.documenti)) {
+        Add-Paragraph -Selection $sel -Text ("- " + [string]$document.nome_file + " (" + [string]$document.tipo + ", " + [string]$document.origine + ")") -Size 9 -SpaceAfter 2
+    }
+
+    $doc.ExportAsFixedFormat($PdfPath, 17)
+    $doc.Close($false)
+    $doc = $null
+}
+finally {
+    if ($doc -ne $null) { $doc.Close($false) }
+    if ($word -ne $null) { $word.Quit() }
+}
+"""
+    with tempfile.TemporaryDirectory(prefix="passapp_sopr_template_") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        payload_path = tmp_path / "payload.json"
+        script_path = tmp_path / "verbale_sopralluogo_template.ps1"
+        payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        script_path.write_text(ps_script, encoding="utf-8")
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+                "-TemplatePath",
+                str(template_path),
+                "-PdfPath",
+                str(output_pdf),
+                "-PayloadPath",
+                str(payload_path),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=180,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "Errore sconosciuto").strip())
+    if not output_pdf.exists():
+        raise RuntimeError("Il file PDF non e stato creato.")
+    return output_pdf

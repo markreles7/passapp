@@ -40,6 +40,7 @@ from core.fascicoli import (
     add_attachment,
     ensure_fascicolo,
     fascicolo_exists,
+    generate_photo_sheet_doc,
     generate_photo_sheet_html,
     get_fascicolo_path,
     list_attachments,
@@ -524,16 +525,14 @@ class SegnalazioniPage(QWidget):
 
         guide_box = QFrame()
         guide_box.setObjectName("SubPanel")
+        guide_box.setMinimumHeight(205)
         guide_layout = QVBoxLayout(guide_box)
         guide_layout.setContentsMargins(12, 12, 12, 12)
         guide_layout.setSpacing(8)
         guide_title = QLabel("Procedura segnalazione -> sopralluogo")
         guide_title.setStyleSheet("font-weight: 700;")
         guide_layout.addWidget(guide_title)
-        self.workflow_hint = QLabel(
-            "1. Compila la segnalazione. 2. Crea fascicolo e allega foto/documenti. "
-            "3. Genera PDF segnalazione. 4. Apri Nuovo sopralluogo. 5. Compila esito e verbale."
-        )
+        self.workflow_hint = QLabel("Percorso guidato della pratica selezionata.")
         self.workflow_hint.setObjectName("Muted")
         self.workflow_hint.setWordWrap(True)
         guide_layout.addWidget(self.workflow_hint)
@@ -541,17 +540,29 @@ class SegnalazioniPage(QWidget):
         self.workflow_progress.setStyleSheet("font-weight: 700;")
         self.workflow_progress.setWordWrap(True)
         guide_layout.addWidget(self.workflow_progress)
+        self.workflow_bar = QProgressBar()
+        self.workflow_bar.setRange(0, 100)
+        self.workflow_bar.setValue(0)
+        self.workflow_bar.setTextVisible(True)
+        self.workflow_bar.setFormat("%p%")
+        self.workflow_bar.setMinimumHeight(18)
+        guide_layout.addWidget(self.workflow_bar)
         self.workflow_missing = QLabel("")
         self.workflow_missing.setObjectName("Muted")
         self.workflow_missing.setWordWrap(True)
         guide_layout.addWidget(self.workflow_missing)
+        self.workflow_steps = QLabel("")
+        self.workflow_steps.setObjectName("Muted")
+        self.workflow_steps.setWordWrap(True)
+        self.workflow_steps.setMinimumHeight(58)
+        guide_layout.addWidget(self.workflow_steps)
         guide_actions = QHBoxLayout()
-        continue_button = QPushButton("Continua procedura")
-        continue_button.clicked.connect(self.continue_workflow)
+        self.continue_workflow_button = QPushButton("Continua procedura")
+        self.continue_workflow_button.clicked.connect(self.continue_workflow)
         guide_button = QPushButton("Guida procedura")
         guide_button.setProperty("secondary", "true")
         guide_button.clicked.connect(self.show_workflow_guide)
-        guide_actions.addWidget(continue_button)
+        guide_actions.addWidget(self.continue_workflow_button)
         guide_actions.addWidget(guide_button)
         guide_actions.addStretch(1)
         guide_layout.addLayout(guide_actions)
@@ -796,7 +807,10 @@ class SegnalazioniPage(QWidget):
         self._set_form_editable(False)
         self.fascicolo_status.setText("Fascicolo: non creato")
         self.workflow_progress.setText("Seleziona una segnalazione per vedere lo stato della procedura.")
+        self.workflow_bar.setValue(0)
         self.workflow_missing.setText("")
+        self.workflow_steps.setText("")
+        self.continue_workflow_button.setEnabled(False)
 
     def _set_form_editable(self, editable: bool) -> None:
         self.save_button.setText("Modifica dati")
@@ -988,17 +1002,40 @@ class SegnalazioniPage(QWidget):
         seg = self.selected_report()
         if seg is None:
             self.workflow_progress.setText("Seleziona una segnalazione per vedere lo stato della procedura.")
+            self.workflow_bar.setValue(0)
             self.workflow_missing.setText("")
+            self.workflow_steps.setText("")
+            self.continue_workflow_button.setEnabled(False)
             return
         state = self.workflow_state(seg)
+        percent = int(state["percent"])
         self.workflow_progress.setText(
-            f"Avanzamento procedura: {state['percent']}% ({state['done']}/{state['total']} passaggi completati)"
+            f"Avanzamento: {percent}% ({state['done']}/{state['total']} passaggi completati)"
         )
-        missing = state.get("missing", [])
-        if missing:
-            self.workflow_missing.setText("Manca: " + "; ".join(missing[:4]))
+        self.workflow_bar.setValue(percent)
+        next_step = state.get("next_step")
+        if isinstance(next_step, dict):
+            self.workflow_missing.setText(f"Prossimo passaggio: {next_step.get('title', '')}")
+            self.continue_workflow_button.setEnabled(True)
         else:
             self.workflow_missing.setText("Tutti i passaggi principali risultano completati.")
+            self.continue_workflow_button.setEnabled(True)
+        self.workflow_steps.setText(self._workflow_steps_summary(state))
+
+    def _workflow_steps_summary(self, state: dict[str, object]) -> str:
+        raw_steps = state.get("steps", [])
+        if not isinstance(raw_steps, list):
+            return ""
+        lines = []
+        for raw in raw_steps[:5]:
+            if not isinstance(raw, dict):
+                continue
+            marker = "OK" if raw.get("done") else "Da fare"
+            lines.append(f"{marker}: {raw.get('title', '')}")
+        remaining = max(0, len(raw_steps) - len(lines))
+        if remaining:
+            lines.append(f"... altri {remaining} passaggi nella guida completa")
+        return "\n".join(lines)
 
     def workflow_state(self, seg: Segnalazione) -> dict[str, object]:
         missing: list[str] = []
@@ -1164,7 +1201,7 @@ class SegnalazioniPage(QWidget):
             QMessageBox.information(self, "Selezione richiesta", "Seleziona una segnalazione.")
             return
         try:
-            output = generate_photo_sheet_html(seg)
+            output = generate_photo_sheet_doc(seg)
             open_path(output)
         except Exception as exc:
             QMessageBox.critical(self, "Scheda non creata", f"Impossibile generare la scheda fotografica.\n\n{exc}")

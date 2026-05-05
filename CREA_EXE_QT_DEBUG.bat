@@ -16,6 +16,7 @@ echo [2/3] Creazione EXE Qt con console debug...
   --onedir ^
   --name PassAppQtDebug ^
   --add-data "assets;assets" ^
+  --add-data "templates;templates" ^
   --add-data "data\config.json;data" ^
   main_qt.py
 if errorlevel 1 goto errore
@@ -23,6 +24,7 @@ if errorlevel 1 goto errore
 echo [3/3] Preparazione configurazione esterna...
 if not exist "dist\PassAppQtDebug\data" mkdir "dist\PassAppQtDebug\data"
 if exist "data\config.json" copy /y "data\config.json" "dist\PassAppQtDebug\data\config.json" >nul
+if exist "templates" xcopy /e /i /y "templates" "dist\PassAppQtDebug\templates" >nul
 
 echo.
 echo Build debug completata:

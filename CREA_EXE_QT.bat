@@ -24,6 +24,7 @@ echo [3/4] Creazione EXE Qt...
   --onedir ^
   --name PassAppQt ^
   --add-data "assets;assets" ^
+  --add-data "templates;templates" ^
   --add-data "data\config.json;data" ^
   main_qt.py
 if errorlevel 1 goto errore
@@ -31,6 +32,7 @@ if errorlevel 1 goto errore
 echo [4/4] Preparazione cartelle esterne...
 if not exist "dist\PassAppQt\data" mkdir "dist\PassAppQt\data"
 if exist "data\config.json" copy /y "data\config.json" "dist\PassAppQt\data\config.json" >nul
+if exist "templates" xcopy /e /i /y "templates" "dist\PassAppQt\templates" >nul
 if not exist "dist\PassAppQt\documenti" mkdir "dist\PassAppQt\documenti"
 if not exist "dist\PassAppQt\documenti\segnalazioni_pdf" mkdir "dist\PassAppQt\documenti\segnalazioni_pdf"
 if not exist "dist\PassAppQt\documenti\fascicoli_segnalazioni" mkdir "dist\PassAppQt\documenti\fascicoli_segnalazioni"

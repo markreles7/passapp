@@ -19,6 +19,7 @@ APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
 
 FASCICOLI_BASE_DIR = resolve_path(PATHS.get("fascicoli_segnalazioni_dir", "documenti/fascicoli_segnalazioni"))
+FASCICOLO_FOTOGRAFICO_TEMPLATE = resolve_path(PATHS.get("fascicolo_fotografico_template", "templates/fascicolo_fotografico.doc"))
 FASCICOLI_FILE = resolve_path("data/fascicoli.json")
 FASCICOLI_MALFORMED_BACKUP_DIR = resolve_path("data/backups/fascicoli")
 FASCICOLO_SUBDIRS = ("foto", "allegati", "sopralluoghi", "documenti", "export")
@@ -268,6 +269,45 @@ def generate_photo_sheet_html(
     return output
 
 
+def generate_photo_sheet_doc(
+    segnalazione,
+    registry_path: Path = FASCICOLI_FILE,
+    base_dir: Path = FASCICOLI_BASE_DIR,
+    template_path: Path = FASCICOLO_FOTOGRAFICO_TEMPLATE,
+) -> Path:
+    folder = ensure_fascicolo(segnalazione, registry_path, base_dir)
+    export_dir = folder / "export"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    photos = [item for item in list_attachments(_segnalazione_id(segnalazione), registry_path=registry_path) if item.tipo == "foto"]
+    if not photos:
+        raise RuntimeError("Non sono presenti foto nel fascicolo.")
+    if not Path(template_path).exists():
+        return generate_photo_sheet_html(segnalazione, registry_path, base_dir)
+
+    output = export_dir / "fascicolo_fotografico.doc"
+    payload = {
+        "replacements": {
+            "NUMERO_SEGNALAZIONE": str(_segnalazione_id(segnalazione)),
+            "DATA_SEGNALAZIONE": _segnalazione_date(segnalazione),
+            "LUOGO": str(getattr(segnalazione, "indirizzo", "")) or "-",
+            "OGGETTO": str(getattr(segnalazione, "descrizione_segnalazione", "")) or "-",
+            "DATA_GENERAZIONE": dt.date.today().strftime("%d/%m/%Y"),
+        },
+        "photos": [
+            {
+                "nome_file": item.nome_file,
+                "path": str(relative_to_path(item.relative_path)),
+                "descrizione": item.descrizione,
+                "origine": item.origine,
+            }
+            for item in photos
+            if relative_to_path(item.relative_path).exists()
+        ],
+    }
+    _render_photo_doc_from_template(Path(template_path), output, payload)
+    return output
+
+
 def open_path(path: Path) -> None:
     target = Path(path)
     if os.name == "nt":
@@ -453,3 +493,134 @@ def _segnalazione_date(segnalazione) -> str:
     parts = [str(getattr(segnalazione, field, "")).strip() for field in ("giorno", "mese", "anno")]
     text = "/".join(part for part in parts if part)
     return text or "-"
+
+
+def _render_photo_doc_from_template(template_path: Path, output_doc: Path, payload: dict[str, Any]) -> None:
+    output_doc.parent.mkdir(parents=True, exist_ok=True)
+    ps_script = r"""
+param(
+    [Parameter(Mandatory = $true)][string]$TemplatePath,
+    [Parameter(Mandatory = $true)][string]$OutputPath,
+    [Parameter(Mandatory = $true)][string]$PayloadPath
+)
+$ErrorActionPreference = "Stop"
+$payload = Get-Content -Path $PayloadPath -Raw -Encoding UTF8 | ConvertFrom-Json
+Copy-Item -Path $TemplatePath -Destination $OutputPath -Force
+
+function Add-Paragraph {
+    param([object]$Selection, [string]$Text, [int]$Size = 10, [bool]$Bold = $false, [int]$Alignment = 0, [int]$SpaceAfter = 4)
+    $Selection.ParagraphFormat.Alignment = $Alignment
+    $Selection.ParagraphFormat.SpaceAfter = $SpaceAfter
+    $Selection.Font.Name = "Calibri"
+    $Selection.Font.Size = $Size
+    $Selection.Font.Bold = if ($Bold) { 1 } else { 0 }
+    $Selection.TypeText($Text)
+    $Selection.TypeParagraph()
+}
+
+function Replace-Token {
+    param([object]$Document, [string]$Token, [string]$Value)
+    $range = $Document.Content
+    $find = $range.Find
+    $find.ClearFormatting()
+    $find.Replacement.ClearFormatting()
+    [void]$find.Execute($Token, $false, $true, $false, $false, $false, $true, 1, $false, $Value, 2)
+}
+
+function Select-Placeholder {
+    param([object]$Document, [object]$Word, [string]$Token)
+    $range = $Document.Content
+    $find = $range.Find
+    $find.ClearFormatting()
+    if ($find.Execute($Token, $false, $true, $false, $false, $false, $true, 1)) {
+        $range.Text = ""
+        $range.Select()
+        return $true
+    }
+    $end = $Document.Range($Document.Content.End - 1, $Document.Content.End - 1)
+    $end.Select()
+    $Word.Selection.TypeParagraph()
+    return $false
+}
+
+function Add-Photo {
+    param([object]$Selection, [object]$Word, [object]$Photo)
+    if (-not (Test-Path ([string]$Photo.path))) { return }
+    try {
+        $shape = $Selection.InlineShapes.AddPicture([string]$Photo.path, $false, $true)
+        $maxWidth = $Word.CentimetersToPoints(15.5)
+        $maxHeight = $Word.CentimetersToPoints(9)
+        if ($shape.Width -gt $maxWidth) {
+            $ratio = $maxWidth / $shape.Width
+            $shape.Width = $maxWidth
+            $shape.Height = $shape.Height * $ratio
+        }
+        if ($shape.Height -gt $maxHeight) {
+            $ratio = $maxHeight / $shape.Height
+            $shape.Height = $maxHeight
+            $shape.Width = $shape.Width * $ratio
+        }
+        $Selection.TypeParagraph()
+        $caption = [string]$Photo.descrizione
+        if ($caption -eq "") { $caption = [string]$Photo.nome_file }
+        Add-Paragraph -Selection $Selection -Text $caption -Size 9 -SpaceAfter 8
+    } catch {
+        Add-Paragraph -Selection $Selection -Text ("Foto non inserita: " + [string]$Photo.nome_file) -Size 8 -SpaceAfter 4
+    }
+}
+
+$word = $null
+$doc = $null
+try {
+    $word = New-Object -ComObject Word.Application
+    $word.Visible = $false
+    $doc = $word.Documents.Open($OutputPath)
+    foreach ($prop in $payload.replacements.PSObject.Properties) {
+        Replace-Token -Document $doc -Token ("{{" + $prop.Name + "}}") -Value ([string]$prop.Value)
+    }
+    [void](Select-Placeholder -Document $doc -Word $word -Token "{{FOTO}}")
+    $sel = $word.Selection
+    Add-Paragraph -Selection $sel -Text "FASCICOLO FOTOGRAFICO" -Size 13 -Bold $true -Alignment 1 -SpaceAfter 8
+    foreach ($photo in @($payload.photos)) {
+        Add-Photo -Selection $sel -Word $word -Photo $photo
+    }
+    $doc.Save()
+    $doc.Close($false)
+    $doc = $null
+}
+finally {
+    if ($doc -ne $null) { $doc.Close($false) }
+    if ($word -ne $null) { $word.Quit() }
+}
+"""
+    with tempfile.TemporaryDirectory(prefix="passapp_foto_doc_") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        payload_path = tmp_path / "payload.json"
+        script_path = tmp_path / "fascicolo_fotografico.ps1"
+        payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        script_path.write_text(ps_script, encoding="utf-8")
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+                "-TemplatePath",
+                str(template_path),
+                "-OutputPath",
+                str(output_doc),
+                "-PayloadPath",
+                str(payload_path),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=180,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "Errore sconosciuto").strip())
+    if not output_doc.exists():
+        raise RuntimeError("Il fascicolo fotografico non e stato creato.")

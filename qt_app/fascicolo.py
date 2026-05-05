@@ -27,6 +27,7 @@ from core.fascicoli import (
     delete_attachment,
     ensure_fascicolo,
     fascicolo_exists,
+    generate_photo_sheet_doc,
     generate_photo_sheet_html,
     get_fascicolo_path,
     list_attachments,
@@ -313,7 +314,7 @@ class FascicoloDialog(QDialog):
 
     def generate_photo_sheet(self) -> None:
         try:
-            output = generate_photo_sheet_html(self.segnalazione)
+            output = generate_photo_sheet_doc(self.segnalazione)
             open_path(output)
         except Exception as exc:
             QMessageBox.critical(self, "Scheda non creata", f"Impossibile generare la scheda fotografica.\n\n{exc}")
