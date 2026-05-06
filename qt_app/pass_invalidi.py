@@ -849,6 +849,16 @@ class PassInvalidiPage(QWidget):
         if record is None:
             QMessageBox.information(self, "Nessuna selezione", "Seleziona un nominativo.")
             return
+        answer = QMessageBox.question(
+            self,
+            "Conferma creazione autorizzazione",
+            "Vuoi creare una nuova autorizzazione per il nominativo selezionato?\n\n"
+            "Se il documento esiste gia, usa il pulsante Apri autorizzazione.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
 
         template_path = resolve_authorization_template(AUTH_TEMPLATE_PATH, AUTH_DOCS_DIR)
         if template_path is None:

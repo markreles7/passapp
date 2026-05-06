@@ -10,6 +10,7 @@ from typing import Any
 
 from app_config import load_config, resolve_path
 from core.fascicoli import list_attachments, relative_to_path
+from core.gemini_verbale import prepare_sopralluogo_verbale_text
 from core.sopralluoghi import Sopralluogo
 
 APP_CONFIG = load_config()
@@ -87,6 +88,7 @@ def render_sopralluogo_pdf(segnalazione, item: Sopralluogo, output_pdf: Path) ->
     output_pdf = Path(output_pdf)
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     payload = build_pdf_payload(segnalazione, item)
+    payload["verbale_generato"] = prepare_sopralluogo_verbale_text(payload)
     if VERBALE_SOPRALLUOGO_TEMPLATE.exists():
         return render_sopralluogo_pdf_from_template(VERBALE_SOPRALLUOGO_TEMPLATE, payload, output_pdf)
     ps_script = r"""
@@ -200,13 +202,7 @@ try {
     Add-Info -Selection $sel -Label "Ufficio destinatario: " -Value $payload.ufficio
 
     Add-Section -Selection $sel -Text "Verbale operativo"
-    Add-Paragraph -Selection $sel -Text ("In data " + $payload.data_ora + " l'operatore/gli operatori indicati hanno effettuato il sopralluogo presso il luogo sopra riportato, in relazione alla segnalazione n. " + $payload.segnalazione_numero + ".") -Size 9 -SpaceAfter 3
-    Add-Paragraph -Selection $sel -Text "Esito del sopralluogo" -Size 9 -Bold $true -SpaceAfter 1
-    Add-Paragraph -Selection $sel -Text $payload.esito -Size 9 -SpaceAfter 4
-    Add-Paragraph -Selection $sel -Text "Note operative" -Size 9 -Bold $true -SpaceAfter 1
-    Add-Paragraph -Selection $sel -Text $payload.note -Size 9 -SpaceAfter 4
-    Add-Paragraph -Selection $sel -Text "Determinazioni e seguito pratica" -Size 9 -Bold $true -SpaceAfter 1
-    Add-Paragraph -Selection $sel -Text ("Necessita di ulteriori atti: " + $payload.atti + ". Ufficio destinatario: " + $payload.ufficio + ".") -Size 9 -SpaceAfter 6
+    Add-Paragraph -Selection $sel -Text ([string]$payload.verbale_generato) -Size 9 -SpaceAfter 6
 
     Add-Section -Selection $sel -Text "Riepilogo allegati"
     Add-Info -Selection $sel -Label "Foto nel fascicolo: " -Value $payload.foto_count
@@ -390,6 +386,7 @@ try {
         "UFFICIO_DESTINATARIO" = $payload.ufficio
         "ULTERIORI_ATTI" = $payload.atti
         "DATA_GENERAZIONE" = $payload.data_generazione
+        "VERBALE_GENERATO" = $payload.verbale_generato
     }
     foreach ($key in $map.Keys) {
         Replace-Token -Document $doc -Token ("{{" + $key + "}}") -Value ([string]$map[$key])
@@ -405,6 +402,8 @@ try {
     Add-Paragraph -Selection $sel -Text ([string]$payload.esito) -Size 10 -SpaceAfter 4
     Add-Paragraph -Selection $sel -Text "Note operative" -Size 10 -Bold $true -SpaceAfter 2
     Add-Paragraph -Selection $sel -Text ([string]$payload.note) -Size 10 -SpaceAfter 6
+    Add-Paragraph -Selection $sel -Text "Verbale operativo" -Size 11 -Bold $true -SpaceAfter 6
+    Add-Paragraph -Selection $sel -Text ([string]$payload.verbale_generato) -Size 10 -SpaceAfter 8
 
     [void](Select-Placeholder -Document $doc -Word $word -Token "{{FOTO}}")
     $sel = $word.Selection

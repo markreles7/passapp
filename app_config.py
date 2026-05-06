@@ -46,6 +46,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "pass_invalidi": {
         "warning_days": 60,
     },
+    "ai": {
+        "gemini_api_key": "",
+        "gemini_model": "gemini-3-flash-preview",
+        "gemini_enabled_for_sopralluogo": True,
+        "gemini_timeout_seconds": 45,
+    },
     "ui": {
         "app_name": "PassApp Suite Ufficio Servizi",
         "main_title": "Suite Ufficio Servizi - Polizia Locale",
