@@ -37,6 +37,7 @@ CONFIG_FIELDS = (
     ("paths.fascicoli_segnalazioni_dir", "Cartella fascicoli segnalazioni", "dir"),
     ("paths.report_mensili_dir", "Cartella report mensili", "dir"),
     ("paths.logo_path", "Logo applicazione", "file"),
+    ("ai.gemini_api_key", "Chiave API Gemini", "secret"),
 )
 
 
@@ -124,6 +125,9 @@ class ConfigurationPage(QWidget):
         label_widget = QLabel(label)
         label_widget.setObjectName("Muted")
         field = QLineEdit(self._get_value(config, key))
+        if browse_type == "secret":
+            field.setEchoMode(QLineEdit.Password)
+            field.setPlaceholderText("Inserisci o aggiorna la chiave API Gemini")
         self.fields[key] = field
 
         grid.addWidget(label_widget, row, 0)
@@ -153,6 +157,8 @@ class ConfigurationPage(QWidget):
             value = field.text().strip()
             if name == "ospitalita_patterns":
                 raw_config.setdefault(section, {})[name] = [item.strip() for item in value.split(";") if item.strip()]
+            elif key == "ai.gemini_api_key":
+                raw_config.setdefault(section, {})[name] = value
             elif value:
                 raw_config.setdefault(section, {})[name] = value
 

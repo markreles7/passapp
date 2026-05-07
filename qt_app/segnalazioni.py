@@ -379,6 +379,107 @@ class SegnalazioneWorkflowDialog(QDialog):
         root.addWidget(buttons)
 
 
+class SegnalazioneDetailDialog(QDialog):
+    def __init__(self, seg: Segnalazione, workflow: dict[str, object] | None = None, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Dettaglio segnalazione n. {seg.numero_progressivo}")
+        self.setModal(True)
+        self.resize(980, 760)
+        self.setMinimumSize(820, 620)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
+
+        title = QLabel(f"Segnalazione n. {seg.numero_progressivo} - {seg.nominativo or 'Nominativo non indicato'}")
+        title.setStyleSheet("font-size: 16pt; font-weight: 700;")
+        title.setWordWrap(True)
+        root.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(12)
+
+        grid_box = QFrame()
+        grid_box.setObjectName("SubPanel")
+        grid = QGridLayout(grid_box)
+        grid.setContentsMargins(12, 12, 12, 12)
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(8)
+        details = (
+            ("Data/ora", f"{seg.giorno}/{seg.mese}/{seg.anno} {seg.ora}"),
+            ("Luogo", seg.indirizzo or "-"),
+            ("Residenza", seg.residenza or "-"),
+            ("Telefono", seg.telefono or "-"),
+            ("Ricevente", seg.ricevente or "-"),
+            ("Agente verificatore", seg.agente_verificatore or "-"),
+            ("Data verifica", seg.data_verifica or "-"),
+            ("Modalita", seg.modalita_segnalazione or "-"),
+            ("Categoria", seg.categoria),
+            ("Priorita", seg.priorita),
+            ("Stato lavorazione", seg.stato_lavorazione),
+            ("Record", seg.stato),
+        )
+        for idx, (label, value) in enumerate(details):
+            row = idx // 2
+            col = (idx % 2) * 2
+            label_widget = QLabel(label)
+            label_widget.setObjectName("Muted")
+            value_widget = QLabel(value)
+            value_widget.setWordWrap(True)
+            grid.addWidget(label_widget, row, col)
+            grid.addWidget(value_widget, row, col + 1)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+        body_layout.addWidget(grid_box)
+
+        if workflow is not None:
+            workflow_box = QFrame()
+            workflow_box.setObjectName("SubPanel")
+            workflow_layout = QVBoxLayout(workflow_box)
+            workflow_layout.setContentsMargins(12, 12, 12, 12)
+            workflow_layout.setSpacing(8)
+            workflow_title = QLabel(
+                f"Procedura: {workflow['percent']}% ({workflow['done']}/{workflow['total']} passaggi completati)"
+            )
+            workflow_title.setStyleSheet("font-weight: 700;")
+            workflow_layout.addWidget(workflow_title)
+            missing = workflow.get("missing", [])
+            if missing:
+                missing_text = "Prossimi passaggi: " + "; ".join(str(item) for item in missing[:4])
+            else:
+                missing_text = "Tutti i passaggi principali risultano completati."
+            missing_label = QLabel(missing_text)
+            missing_label.setObjectName("Muted")
+            missing_label.setWordWrap(True)
+            workflow_layout.addWidget(missing_label)
+            body_layout.addWidget(workflow_box)
+
+        body_layout.addWidget(QLabel("Descrizione segnalazione"))
+        descrizione = QTextEdit(seg.descrizione_segnalazione)
+        descrizione.setReadOnly(True)
+        descrizione.setMinimumHeight(180)
+        body_layout.addWidget(descrizione)
+
+        body_layout.addWidget(QLabel("Verifica effettuata"))
+        verifica = QTextEdit(seg.verifica_effettuata)
+        verifica.setReadOnly(True)
+        verifica.setMinimumHeight(150)
+        body_layout.addWidget(verifica)
+
+        body_layout.addStretch(1)
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.button(QDialogButtonBox.Close).setText("Chiudi")
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+
 class SegnalazioniPage(QWidget):
     request_sopralluoghi = Signal(int, bool, str)
 
@@ -483,6 +584,7 @@ class SegnalazioniPage(QWidget):
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.SingleSelection)
         table.itemSelectionChanged.connect(lambda table=table, stato=stato: self.on_select(table, stato))
+        table.itemDoubleClicked.connect(lambda _item, table=table, stato=stato: self.open_selected_detail(table, stato))
         return table
 
     def _build_detail_panel(self) -> QWidget:
@@ -492,47 +594,19 @@ class SegnalazioniPage(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        title = QLabel("Riepilogo segnalazione")
-        title.setStyleSheet("font-size: 13pt; font-weight: 700;")
-        layout.addWidget(title)
-
-        self.summary_title = QLabel("Nessuna segnalazione selezionata")
-        self.summary_title.setStyleSheet("font-size: 12pt; font-weight: 700;")
-        self.summary_title.setWordWrap(True)
-        layout.addWidget(self.summary_title)
-
-        self.summary_meta = QLabel("")
-        self.summary_meta.setObjectName("Muted")
-        self.summary_meta.setWordWrap(True)
-        layout.addWidget(self.summary_meta)
-
-        self.summary_status = QLabel("")
-        self.summary_status.setObjectName("Muted")
-        self.summary_status.setWordWrap(True)
-        layout.addWidget(self.summary_status)
-
-        layout.addWidget(QLabel("Descrizione segnalazione"))
-        self.descrizione = QTextEdit()
-        self.descrizione.setReadOnly(True)
-        self.descrizione.setMinimumHeight(150)
-        layout.addWidget(self.descrizione)
-
-        layout.addWidget(QLabel("Verifica effettuata"))
-        self.verifica = QTextEdit()
-        self.verifica.setReadOnly(True)
-        self.verifica.setMinimumHeight(130)
-        layout.addWidget(self.verifica)
-
         guide_box = QFrame()
         guide_box.setObjectName("SubPanel")
-        guide_box.setMinimumHeight(205)
         guide_layout = QVBoxLayout(guide_box)
         guide_layout.setContentsMargins(12, 12, 12, 12)
         guide_layout.setSpacing(8)
-        guide_title = QLabel("Procedura segnalazione -> sopralluogo")
+        guide_title = QLabel("Guida step by step")
         guide_title.setStyleSheet("font-weight: 700;")
         guide_layout.addWidget(guide_title)
-        self.workflow_hint = QLabel("Percorso guidato della pratica selezionata.")
+        self.selected_hint = QLabel("Nessuna segnalazione selezionata. Doppio click su una riga per aprire il dettaglio aggiornato.")
+        self.selected_hint.setObjectName("Muted")
+        self.selected_hint.setWordWrap(True)
+        guide_layout.addWidget(self.selected_hint)
+        self.workflow_hint = QLabel("Creazione segnalazione -> fascicolo -> foto/allegati -> sopralluogo -> chiusura pratica.")
         self.workflow_hint.setObjectName("Muted")
         self.workflow_hint.setWordWrap(True)
         guide_layout.addWidget(self.workflow_hint)
@@ -559,10 +633,14 @@ class SegnalazioniPage(QWidget):
         guide_actions = QHBoxLayout()
         self.continue_workflow_button = QPushButton("Continua procedura")
         self.continue_workflow_button.clicked.connect(self.continue_workflow)
+        self.detail_button = QPushButton("Apri dettaglio")
+        self.detail_button.setProperty("secondary", "true")
+        self.detail_button.clicked.connect(self.open_current_detail)
         guide_button = QPushButton("Guida procedura")
         guide_button.setProperty("secondary", "true")
         guide_button.clicked.connect(self.show_workflow_guide)
         guide_actions.addWidget(self.continue_workflow_button)
+        guide_actions.addWidget(self.detail_button)
         guide_actions.addWidget(guide_button)
         guide_actions.addStretch(1)
         guide_layout.addLayout(guide_actions)
@@ -743,6 +821,17 @@ class SegnalazioniPage(QWidget):
         numero = item.data(Qt.UserRole)
         self.select_report(int(numero), stato)
 
+    def open_selected_detail(self, table: QTableWidget, stato: str) -> None:
+        row = table.currentRow()
+        if row < 0:
+            return
+        item = table.item(row, 0)
+        if item is None:
+            return
+        numero = int(item.data(Qt.UserRole))
+        self.select_report(numero, stato)
+        self.open_current_detail()
+
     def select_report(self, numero: int, stato: str) -> None:
         seg = self.find_report(numero, stato)
         if seg is None:
@@ -763,33 +852,10 @@ class SegnalazioniPage(QWidget):
         return self.find_report(self.selected_numero, self.selected_stato)
 
     def load_detail(self, seg: Segnalazione) -> None:
-        self.summary_title.setText(f"Segnalazione n. {seg.numero_progressivo} - {seg.nominativo or 'Nominativo non indicato'}")
-        self.summary_meta.setText(
-            "\n".join(
-                (
-                    f"Data/ora: {seg.giorno}/{seg.mese}/{seg.anno} {seg.ora}",
-                    f"Luogo: {seg.indirizzo or '-'}",
-                    f"Residenza: {seg.residenza or '-'}",
-                    f"Telefono: {seg.telefono or '-'}",
-                    f"Ricevente: {seg.ricevente or '-'}",
-                    f"Agente verificatore: {seg.agente_verificatore or '-'}",
-                    f"Data verifica: {seg.data_verifica or '-'}",
-                )
-            )
+        self.selected_hint.setText(
+            f"Segnalazione selezionata: n. {seg.numero_progressivo}. "
+            "Doppio click sulla riga per aprire la schermata con i dati aggiornati."
         )
-        self.summary_status.setText(
-            "\n".join(
-                (
-                    f"Record: {seg.stato}",
-                    f"Modalita: {seg.modalita_segnalazione or '-'}",
-                    f"Categoria: {seg.categoria}",
-                    f"Priorita: {seg.priorita}",
-                    f"Stato lavorazione: {seg.stato_lavorazione}",
-                )
-            )
-        )
-        self.descrizione.setPlainText(seg.descrizione_segnalazione)
-        self.verifica.setPlainText(seg.verifica_effettuata)
         self._set_form_editable(seg.stato == "in_corso")
         self.update_fascicolo_status()
         self.update_workflow_status()
@@ -797,11 +863,7 @@ class SegnalazioniPage(QWidget):
     def clear_detail(self) -> None:
         self.selected_numero = None
         self.selected_stato = None
-        self.summary_title.setText("Nessuna segnalazione selezionata")
-        self.summary_meta.setText("")
-        self.summary_status.setText("")
-        self.descrizione.clear()
-        self.verifica.clear()
+        self.selected_hint.setText("Nessuna segnalazione selezionata. Doppio click su una riga per aprire il dettaglio aggiornato.")
         self.open_table.clearSelection()
         self.closed_table.clearSelection()
         self._set_form_editable(False)
@@ -811,6 +873,7 @@ class SegnalazioniPage(QWidget):
         self.workflow_missing.setText("")
         self.workflow_steps.setText("")
         self.continue_workflow_button.setEnabled(False)
+        self.detail_button.setEnabled(False)
 
     def _set_form_editable(self, editable: bool) -> None:
         self.save_button.setText("Modifica dati")
@@ -820,6 +883,29 @@ class SegnalazioniPage(QWidget):
         self.pdf_button.setEnabled(selected and self.pdf_thread is None)
         self.sopralluoghi_button.setEnabled(selected)
         self.new_sopralluogo_button.setEnabled(selected)
+        self.detail_button.setEnabled(selected)
+
+    def open_current_detail(self) -> None:
+        if self.selected_numero is None or self.selected_stato is None:
+            QMessageBox.information(self, "Selezione richiesta", "Seleziona una segnalazione.")
+            return
+        numero = self.selected_numero
+        stato = self.selected_stato
+        self.load_from_disk()
+        self.refresh_tables()
+        seg = self.find_report(numero, stato) or next(
+            (item for item in self.segnalazioni if item.numero_progressivo == numero),
+            None,
+        )
+        if seg is None:
+            QMessageBox.warning(self, "Segnalazione non trovata", "La segnalazione non e piu presente nei dati aggiornati.")
+            self.clear_detail()
+            return
+        self.selected_numero = seg.numero_progressivo
+        self.selected_stato = seg.stato
+        self.load_detail(seg)
+        dialog = SegnalazioneDetailDialog(seg, self.workflow_state(seg), self)
+        dialog.exec()
 
     def open_sopralluoghi(self, create_new: bool) -> None:
         seg = self.selected_report()

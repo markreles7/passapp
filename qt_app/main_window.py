@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QHBoxLayout, QMainWindow, QStackedWidget, QWidget
+from PySide6.QtCore import QThread, QTimer
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QMessageBox, QStackedWidget, QWidget
 
 from qt_app.configuration import ConfigurationPage
 from qt_app.contacts import ContactsPage
@@ -10,6 +11,7 @@ from qt_app.pass_invalidi import PassInvalidiPage
 from qt_app.report import ReportPage
 from qt_app.segnalazioni import SegnalazioniPage
 from qt_app.sidebar import Sidebar
+from qt_app.updater import UpdateCheckWorker, start_update_and_restart
 from qt_app.sopralluoghi import SopralluoghiPage
 from qt_app.widgets import PlaceholderPage
 
@@ -18,6 +20,8 @@ class MainWindow(QMainWindow):
     def __init__(self, config: dict):
         super().__init__()
         self.config = config
+        self._update_thread: QThread | None = None
+        self._update_worker: UpdateCheckWorker | None = None
         window = config["ui"]["window"]
         self.setWindowTitle(config["ui"]["main_title"])
         self.resize(window["width"], window["height"])
@@ -49,6 +53,7 @@ class MainWindow(QMainWindow):
 
         self.sidebar.selected.connect(self.show_page)
         self.show_page("dashboard")
+        QTimer.singleShot(1200, self.check_for_updates)
 
     def _add_page(self, key: str, page: QWidget) -> None:
         self.pages[key] = page
@@ -63,6 +68,68 @@ class MainWindow(QMainWindow):
             return
         self.stack.setCurrentWidget(page)
         self.sidebar.set_active(key)
+
+    def check_for_updates(self) -> None:
+        if self._update_thread is not None:
+            return
+
+        thread = QThread(self)
+        worker = UpdateCheckWorker()
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._handle_update_info)
+        worker.failed.connect(self._handle_update_check_error)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.finished.connect(lambda _info: worker.deleteLater())
+        worker.failed.connect(lambda _message: worker.deleteLater())
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_update_check)
+
+        self._update_thread = thread
+        self._update_worker = worker
+        thread.start()
+
+    def _handle_update_info(self, info) -> None:
+        if not info.available:
+            return
+
+        if not info.can_apply:
+            QMessageBox.warning(self, "Aggiornamento disponibile", info.message)
+            return
+
+        detail = (
+            f"{info.message}\n\n"
+            f"Sorgente: {info.upstream}\n"
+            "Se accetti, l'app si chiude, applica l'aggiornamento e si riavvia."
+        )
+        choice = QMessageBox.question(
+            self,
+            "Aggiornamento disponibile",
+            detail,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if choice != QMessageBox.Yes:
+            return
+
+        try:
+            start_update_and_restart()
+        except OSError as exc:
+            QMessageBox.critical(self, "Aggiornamento non avviato", str(exc))
+            return
+
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+
+    def _handle_update_check_error(self, _message: str) -> None:
+        return
+
+    def _clear_update_check(self) -> None:
+        self._update_thread = None
+        self._update_worker = None
 
     def open_sopralluoghi_for_segnalazione(self, segnalazione_id: int, create_new: bool, luogo: str) -> None:
         page = self.pages.get("sopralluoghi")

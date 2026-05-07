@@ -16,7 +16,31 @@
       "agente_verificatore": "Power Marcus",
       "verifica_effettuata": "L'agente Marcus Power dichiara esplicitamente l'instabilità mentale della Signora Malavasi Claudia. Richieste visite mediche neurali prima possibile.",
       "data_verifica": "08/04/2026",
+      "categoria": "Altro",
+      "priorita": "Media",
+      "stato_lavorazione": "Archiviata",
       "stato": "archiviata"
+    },
+    {
+      "numero_progressivo": 9,
+      "anno": "2026",
+      "mese": "05",
+      "giorno": "07",
+      "ora": "12:33",
+      "nominativo": "Malavasi Claudia",
+      "residenza": "Viadana",
+      "indirizzo": "Via Gramsci, 2",
+      "telefono": "3273834020",
+      "modalita_segnalazione": "Personalmente",
+      "descrizione_segnalazione": "La Sig.ra Claudia segnala che ci sono rifiuti davanti alla sua abitazione.",
+      "ricevente": "Muzzica Marco",
+      "agente_verificatore": "",
+      "verifica_effettuata": "",
+      "data_verifica": "",
+      "categoria": "Rifiuti",
+      "priorita": "Alta",
+      "stato_lavorazione": "Aperta",
+      "stato": "in_corso"
     }
   ]
 }
