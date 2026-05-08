@@ -11,9 +11,16 @@ from app_config import load_config
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 API_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+DEFAULT_BASE_PROMPT = (
+    "Sei un assistente redazionale per un ufficio di Polizia Locale. "
+    "Devi trasformare i dati inseriti dagli operatori in testi amministrativi chiari, formali e professionali. "
+    "Usa solo i dati disponibili, non inventare norme, responsabilita, misure, nominativi, date o fatti. "
+    "Se un dato non e presente, indica che non risulta agli atti. "
+    "Mantieni un tono neutro e istituzionale, evitando frasi colloquiali o valutazioni personali."
+)
 
 
-def build_sopralluogo_verbale_prompt(payload: dict[str, Any]) -> str:
+def build_sopralluogo_verbale_prompt(payload: dict[str, Any], base_prompt: str | None = None) -> str:
     facts = {
         "numero_segnalazione": payload.get("segnalazione_numero", "-"),
         "data_segnalazione": payload.get("segnalazione_data", "-"),
@@ -35,7 +42,9 @@ def build_sopralluogo_verbale_prompt(payload: dict[str, Any]) -> str:
         "data_generazione": payload.get("data_generazione", "-"),
     }
     facts_text = json.dumps(facts, ensure_ascii=False, indent=2)
+    base = _base_prompt_text(base_prompt)
     return (
+        f"{base}\n\n"
         "Scrivi il corpo narrativo di un verbale di sopralluogo per la Polizia Locale.\n"
         "Usa esclusivamente i dati forniti nel JSON. Non inventare nomi, norme, articoli di legge, misure, violazioni, "
         "date, orari o fatti non presenti. Se un dato manca, scrivi che non risulta indicato.\n"
@@ -43,13 +52,15 @@ def build_sopralluogo_verbale_prompt(payload: dict[str, Any]) -> str:
         "inizia con una formula del tipo 'I sottoscritti Operatori di Polizia Locale...', descrivi il sopralluogo, "
         "richiama la segnalazione, riporta quanto accertato, indica eventuali allegati e chiudi con una formula "
         "del tipo 'Tanto si riferisce per i provvedimenti di competenza'.\n"
+        "Riformula in modo istituzionale eventuali frasi colloquiali o operative inserite dagli utenti, mantenendo pero "
+        "il contenuto sostanziale. Distingui il fatto segnalato da quanto accertato durante il sopralluogo.\n"
         "Non usare markdown, elenchi puntati, titoli iniziali o formule di fantasia. Restituisci solo il corpo del verbale.\n"
         "Mantieni il testo tra 350 e 800 parole, con 3-6 paragrafi.\n\n"
         f"Dati disponibili:\n{facts_text}"
     )
 
 
-def build_segnalazione_pdf_prompt(payload: dict[str, Any]) -> str:
+def build_segnalazione_pdf_prompt(payload: dict[str, Any], base_prompt: str | None = None) -> str:
     facts = {
         "numero": payload.get("numero", "-"),
         "anno": payload.get("anno", "-"),
@@ -71,13 +82,17 @@ def build_segnalazione_pdf_prompt(payload: dict[str, Any]) -> str:
         "riferimento": payload.get("riferimento", "-"),
     }
     facts_text = json.dumps(facts, ensure_ascii=False, indent=2)
+    base = _base_prompt_text(base_prompt)
     return (
+        f"{base}\n\n"
         "Scrivi una relazione descrittiva di segnalazione per la Polizia Locale.\n"
         "Deve essere piu corposa di un riepilogo telegrafico, ma deve usare solo i dati forniti. "
         "Non inventare norme, responsabilita, accertamenti non svolti, nominativi o fatti non presenti.\n"
         "Stile richiesto: amministrativo, chiaro, adatto a un documento PDF di segnalazione collegato a un eventuale sopralluogo. "
         "Descrivi chi segnala, quando e con quale modalita, il luogo indicato, il contenuto della segnalazione, "
         "la ricezione da parte dell'ufficio e l'eventuale stato di lavorazione o verifica registrata.\n"
+        "Conserva il senso della descrizione originale, ma rendila leggibile come relazione d'ufficio. "
+        "Se il sopralluogo non e ancora concluso, non scrivere che e stato accertato un fatto.\n"
         "Non usare markdown, titoli o elenchi puntati. Restituisci solo il testo della relazione.\n"
         "Mantieni il testo tra 250 e 550 parole, con 2-5 paragrafi.\n\n"
         f"Dati disponibili:\n{facts_text}"
@@ -101,6 +116,7 @@ def build_local_sopralluogo_verbale(payload: dict[str, Any]) -> str:
     atti = _value(payload.get("atti"))
     ufficio = _value(payload.get("ufficio"))
 
+    allegati_text = _attachment_summary(foto, foto_count, documenti_count)
     return (
         f"I sottoscritti Operatori di Polizia Locale, {operatori}, in relazione alla segnalazione n. {seg_num}, "
         f"ricevuta in data {seg_date} da {segnalante}, si sono portati in data/ora {data_ora} presso {luogo}, "
@@ -110,8 +126,7 @@ def build_local_sopralluogo_verbale(payload: dict[str, Any]) -> str:
         f"della pratica.\n\n"
         f"All'esito dell'accertamento risulta quanto segue: {esito}. Le note operative riportate dagli operatori "
         f"sono le seguenti: {note}.\n\n"
-        f"Per la pratica risulta indicata presenza di foto/allegati: {foto}. Nel fascicolo digitale risultano "
-        f"richiamate {foto_count} foto e {documenti_count} documenti. Necessita di ulteriori atti: {atti}. "
+        f"{allegati_text} Necessita di ulteriori atti: {atti}. "
         f"Ufficio destinatario o competente: {ufficio}.\n\n"
         "Tanto si riferisce per i provvedimenti di competenza."
     )
@@ -153,7 +168,7 @@ def generate_sopralluogo_verbale_with_gemini(payload: dict[str, Any], config: di
     if not ai_config.get("gemini_enabled_for_sopralluogo", True):
         return ""
 
-    prompt = build_sopralluogo_verbale_prompt(payload)
+    prompt = build_sopralluogo_verbale_prompt(payload, base_prompt=ai_config.get("gemini_base_prompt"))
     return _generate_with_gemini(prompt, ai_config, max_output_tokens=1800)
 
 
@@ -163,18 +178,30 @@ def generate_segnalazione_text_with_gemini(payload: dict[str, Any], config: dict
     if not ai_config.get("gemini_enabled_for_segnalazione_pdf", True):
         return ""
 
-    prompt = build_segnalazione_pdf_prompt(payload)
+    prompt = build_segnalazione_pdf_prompt(payload, base_prompt=ai_config.get("gemini_base_prompt"))
     return _generate_with_gemini(prompt, ai_config, max_output_tokens=1400)
 
 
-def prepare_sopralluogo_verbale_text(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
+def prepare_sopralluogo_verbale(payload: dict[str, Any], config: dict[str, Any] | None = None) -> tuple[str, str]:
     generated = generate_sopralluogo_verbale_with_gemini(payload, config=config)
-    return generated or build_local_sopralluogo_verbale(payload)
+    if generated:
+        return generated, "gemini"
+    return build_local_sopralluogo_verbale(payload), "locale"
+
+
+def prepare_sopralluogo_verbale_text(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
+    return prepare_sopralluogo_verbale(payload, config=config)[0]
+
+
+def prepare_segnalazione_pdf(payload: dict[str, Any], config: dict[str, Any] | None = None) -> tuple[str, str]:
+    generated = generate_segnalazione_text_with_gemini(payload, config=config)
+    if generated:
+        return generated, "gemini"
+    return build_local_segnalazione_text(payload), "locale"
 
 
 def prepare_segnalazione_pdf_text(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
-    generated = generate_segnalazione_text_with_gemini(payload, config=config)
-    return generated or build_local_segnalazione_text(payload)
+    return prepare_segnalazione_pdf(payload, config=config)[0]
 
 
 def _generate_with_gemini(prompt: str, ai_config: dict[str, Any], *, max_output_tokens: int) -> str:
@@ -238,6 +265,23 @@ def _safe_timeout(value: Any) -> int:
     except (TypeError, ValueError):
         timeout = 45
     return max(10, min(timeout, 120))
+
+
+def _base_prompt_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if text else DEFAULT_BASE_PROMPT
+
+
+def _attachment_summary(foto: str, foto_count: str, documenti_count: str) -> str:
+    if str(foto).lower().startswith("s") or foto_count not in ("0", "-"):
+        return (
+            f"Si richiama la documentazione allegata al fascicolo digitale, composta da n. {foto_count} foto "
+            f"e n. {documenti_count} documenti alla data di generazione del verbale."
+        )
+    return (
+        f"Non risulta allegata documentazione fotografica alla data di generazione del verbale; "
+        f"nel fascicolo digitale risultano n. {documenti_count} documenti."
+    )
 
 
 def _value(value: Any, fallback: str = "-") -> str:

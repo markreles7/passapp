@@ -16,7 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 from app_config import load_config, resolve_path
 from core.audit import log_audit_event
 from core.fascicoli import add_attachment, ensure_fascicolo, generate_photo_sheet_html, open_path
-from core.gemini_verbale import prepare_segnalazione_pdf_text
+from core.gemini_verbale import prepare_segnalazione_pdf
 from core.logging_utils import setup_module_logger
 from core.powershell import check_office_com
 from fascicoli import FascicoloWindow, fascicolo_status_text
@@ -1656,7 +1656,7 @@ class SegnalazioniFrame(tk.Frame):
     def _render_pdf_report(self, payload: dict[str, str], output_pdf: Path):
         output_pdf.parent.mkdir(parents=True, exist_ok=True)
         payload = dict(payload)
-        payload["testo_segnalazione_generato"] = prepare_segnalazione_pdf_text(payload)
+        payload["testo_segnalazione_generato"], payload["testo_generato_da"] = prepare_segnalazione_pdf(payload)
         ps_script = r"""
 param(
     [Parameter(Mandatory = $true)][string]$PdfPath,

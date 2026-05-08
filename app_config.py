@@ -49,6 +49,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "ai": {
         "gemini_api_key": "",
         "gemini_model": "gemini-3-flash-preview",
+        "gemini_base_prompt": (
+            "Sei un assistente redazionale per un ufficio di Polizia Locale. "
+            "Devi trasformare i dati inseriti dagli operatori in testi amministrativi chiari, formali e professionali. "
+            "Usa solo i dati disponibili, non inventare norme, responsabilita, misure, nominativi, date o fatti. "
+            "Se un dato non e presente, indica che non risulta agli atti. "
+            "Mantieni un tono neutro e istituzionale, evitando frasi colloquiali o valutazioni personali."
+        ),
         "gemini_enabled_for_segnalazione_pdf": True,
         "gemini_enabled_for_sopralluogo": True,
         "gemini_timeout_seconds": 45,

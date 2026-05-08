@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from core.gemini_verbale import (
+    DEFAULT_BASE_PROMPT,
     build_local_segnalazione_text,
     build_local_sopralluogo_verbale,
     build_segnalazione_pdf_prompt,
@@ -77,6 +78,7 @@ class TestGeminiVerbale(unittest.TestCase):
 
         self.assertIn("verbale di sopralluogo", prompt)
         self.assertIn("Usa esclusivamente i dati forniti", prompt)
+        self.assertIn(DEFAULT_BASE_PROMPT, prompt)
         self.assertIn("I sottoscritti Operatori di Polizia Locale", prompt)
         self.assertIn("Ramo pericolante", prompt)
         self.assertIn("Agente Verdi", prompt)
@@ -86,6 +88,7 @@ class TestGeminiVerbale(unittest.TestCase):
 
         self.assertIn("relazione descrittiva di segnalazione", prompt)
         self.assertIn("piu corposa", prompt)
+        self.assertIn(DEFAULT_BASE_PROMPT, prompt)
         self.assertIn("Segnalata presenza di animale", prompt)
 
     def test_missing_api_key_returns_empty_without_call(self):
