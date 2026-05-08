@@ -16,6 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 from app_config import load_config, resolve_path
 from core.audit import log_audit_event
 from core.fascicoli import add_attachment, ensure_fascicolo, generate_photo_sheet_html, open_path
+from core.gemini_verbale import prepare_segnalazione_pdf_text
 from core.logging_utils import setup_module_logger
 from core.powershell import check_office_com
 from fascicoli import FascicoloWindow, fascicolo_status_text
@@ -1654,6 +1655,8 @@ class SegnalazioniFrame(tk.Frame):
 
     def _render_pdf_report(self, payload: dict[str, str], output_pdf: Path):
         output_pdf.parent.mkdir(parents=True, exist_ok=True)
+        payload = dict(payload)
+        payload["testo_segnalazione_generato"] = prepare_segnalazione_pdf_text(payload)
         ps_script = r"""
 param(
     [Parameter(Mandatory = $true)][string]$PdfPath,
@@ -1801,6 +1804,7 @@ try {
     $statoLavorazione = Compact-Text -Text $payload.stato_lavorazione -MaxLength 45
     $ricevente = Compact-Text -Text $payload.ricevente -MaxLength 60
     $descrizione = Compact-Text -Text $payload.descrizione -MaxLength 650
+    $testoSegnalazione = [string]$payload.testo_segnalazione_generato
     $agente = Compact-Text -Text $payload.agente -MaxLength 60
     $dataAccertamento = Compact-Text -Text $payload.data_accertamento -MaxLength 30
     $verifica = Compact-Text -Text $payload.verifica -MaxLength 340
@@ -1814,7 +1818,7 @@ try {
 
     Add-Paragraph -Selection $sel -Text "COMUNE DI PEGOGNAGA" -Size 11 -Bold $true -Alignment 1 -SpaceAfter 1
     Add-Paragraph -Selection $sel -Text "Polizia Locale" -Size 10 -Bold $true -Alignment 1 -SpaceAfter 1
-    Add-Paragraph -Selection $sel -Text "MODULO DI SEGNALAZIONE ACCERTAMENTO" -Size 11 -Bold $true -Alignment 1 -SpaceAfter 6
+    Add-Paragraph -Selection $sel -Text "RELAZIONE DI SEGNALAZIONE" -Size 12 -Bold $true -Alignment 1 -SpaceAfter 6
 
     Add-LeftRightLine -Selection $sel -LeftText ("Pratica n. " + $numero + " - Stato: " + $stato) -RightText ("Rif.: " + $riferimento) -RightTab $rightTab -Size 9 -BoldLeft $true -BoldRight $true -SpaceAfter 5
     Add-InfoLine -Selection $sel -LabelLeft "Data/Ora ricezione: " -ValueLeft $ricezione -MidTab $midTab -LabelRight "Modalita': " -ValueRight $modalita -Size 9 -SpaceAfter 2
@@ -1824,16 +1828,15 @@ try {
     Add-InfoLine -Selection $sel -LabelLeft "Residenza: " -ValueLeft $residenza -MidTab $midTab -LabelRight "Telefono: " -ValueRight $telefono -Size 9 -SpaceAfter 2
     Add-InfoLine -Selection $sel -LabelLeft "Indirizzo: " -ValueLeft $indirizzo -MidTab $midTab -Size 9 -SpaceAfter 5
 
-    Add-Paragraph -Selection $sel -Text "OGGETTO DELLA SEGNALAZIONE" -Size 9 -Bold $true -Alignment 1 -SpaceAfter 2
+    Add-Paragraph -Selection $sel -Text "RELAZIONE DESCRITTIVA DELLA SEGNALAZIONE" -Size 10 -Bold $true -Alignment 1 -SpaceAfter 3
+    Add-Paragraph -Selection $sel -Text $testoSegnalazione -Size 10 -SpaceAfter 7
+
+    Add-Paragraph -Selection $sel -Text "CONTENUTO ORIGINALE REGISTRATO" -Size 9 -Bold $true -SpaceAfter 2
     Add-Paragraph -Selection $sel -Text $descrizione -Size 9 -SpaceAfter 5
 
     Add-Paragraph -Selection $sel -Text "ATTIVITA' DI ACCERTAMENTO" -Size 9 -Bold $true -SpaceAfter 2
     Add-Paragraph -Selection $sel -Text ("Agente accertatore: " + $agente + "    Data accertamento: " + $dataAccertamento) -Size 9 -SpaceAfter 2
     Add-Paragraph -Selection $sel -Text ("Riscontro registrato in app: " + $verifica) -Size 9 -SpaceAfter 5
-
-    Add-Paragraph -Selection $sel -Text "SPAZIO RISERVATO ALL'AGENTE ACCERTATORE (COMPILAZIONE MANUALE SE NECESSARIO)" -Size 9 -Bold $true -SpaceAfter 2
-    Add-Paragraph -Selection $sel -Text "Annotazioni, esito sopralluogo e provvedimenti adottati:" -Size 9 -SpaceAfter 2
-    Add-HandLines -Selection $sel -Rows 6
 
     Add-Paragraph -Selection $sel -Text "Firma operatore ricevente: ____________________" -Size 9 -Alignment 2 -SpaceAfter 2
     Add-Paragraph -Selection $sel -Text "Firma agente accertatore: ____________________" -Size 9 -Alignment 2 -SpaceAfter 0

@@ -311,6 +311,23 @@ function Add-Paragraph {
     $Selection.TypeParagraph()
 }
 
+function Add-LongText {
+    param([object]$Selection, [string]$Text, [int]$Size = 10, [int]$SpaceAfter = 6)
+    $normalized = ([string]$Text).Replace("`r`n", "`n").Replace("`r", "`n")
+    $parts = $normalized -split "`n`n"
+    foreach ($part in $parts) {
+        $clean = $part.Trim()
+        if ($clean -ne "") {
+            Add-Paragraph -Selection $Selection -Text $clean -Size $Size -SpaceAfter $SpaceAfter
+        }
+    }
+}
+
+function Add-PageBreak {
+    param([object]$Selection)
+    $Selection.InsertBreak(7)
+}
+
 function Replace-Token {
     param([object]$Document, [string]$Token, [string]$Value)
     $range = $Document.Content
@@ -321,7 +338,7 @@ function Replace-Token {
 }
 
 function Select-Placeholder {
-    param([object]$Document, [object]$Word, [string]$Token)
+    param([object]$Document, [object]$Word, [string]$Token, [bool]$AppendIfMissing = $true)
     $range = $Document.Content
     $find = $range.Find
     $find.ClearFormatting()
@@ -329,6 +346,9 @@ function Select-Placeholder {
         $range.Text = ""
         $range.Select()
         return $true
+    }
+    if (-not $AppendIfMissing) {
+        return $false
     }
     $end = $Document.Range($Document.Content.End - 1, $Document.Content.End - 1)
     $end.Select()
@@ -370,56 +390,42 @@ try {
     $word = New-Object -ComObject Word.Application
     $word.Visible = $false
     $doc = $word.Documents.Open($workDoc)
-
-    $map = @{
-        "NUMERO_SEGNALAZIONE" = $payload.segnalazione_numero
-        "DATA_SEGNALAZIONE" = $payload.segnalazione_data
-        "SEGNALANTE" = $payload.segnalante
-        "INDIRIZZO" = $payload.indirizzo_segnalazione
-        "OGGETTO" = $payload.descrizione
-        "ID_SOPRALLUOGO" = $payload.id_sopralluogo
-        "DATA_ORA_SOPRALLUOGO" = $payload.data_ora
-        "LUOGO_SOPRALLUOGO" = $payload.luogo
-        "OPERATORI" = $payload.operatori
-        "ESITO" = $payload.esito
-        "NOTE" = $payload.note
-        "UFFICIO_DESTINATARIO" = $payload.ufficio
-        "ULTERIORI_ATTI" = $payload.atti
-        "DATA_GENERAZIONE" = $payload.data_generazione
-        "VERBALE_GENERATO" = $payload.verbale_generato
-    }
-    foreach ($key in $map.Keys) {
-        Replace-Token -Document $doc -Token ("{{" + $key + "}}") -Value ([string]$map[$key])
-    }
-
-    [void](Select-Placeholder -Document $doc -Word $word -Token "{{DATI_VERBALE}}")
+    $clearRange = $doc.Range()
+    [void]$clearRange.Delete()
+    $doc.Range(0, 0).Select()
     $sel = $word.Selection
-    Add-Paragraph -Selection $sel -Text "Dati riepilogativi del sopralluogo" -Size 11 -Bold $true -SpaceAfter 6
-    Add-Paragraph -Selection $sel -Text ("Segnalazione n. " + $payload.segnalazione_numero + " - " + $payload.indirizzo_segnalazione) -Size 10 -SpaceAfter 4
-    Add-Paragraph -Selection $sel -Text ("Data/Ora sopralluogo: " + $payload.data_ora) -Size 10 -SpaceAfter 4
-    Add-Paragraph -Selection $sel -Text ("Operatori: " + $payload.operatori) -Size 10 -SpaceAfter 4
-    Add-Paragraph -Selection $sel -Text "Esito" -Size 10 -Bold $true -SpaceAfter 2
-    Add-Paragraph -Selection $sel -Text ([string]$payload.esito) -Size 10 -SpaceAfter 4
-    Add-Paragraph -Selection $sel -Text "Note operative" -Size 10 -Bold $true -SpaceAfter 2
-    Add-Paragraph -Selection $sel -Text ([string]$payload.note) -Size 10 -SpaceAfter 6
-    Add-Paragraph -Selection $sel -Text "Verbale operativo" -Size 11 -Bold $true -SpaceAfter 6
-    Add-Paragraph -Selection $sel -Text ([string]$payload.verbale_generato) -Size 10 -SpaceAfter 8
 
-    [void](Select-Placeholder -Document $doc -Word $word -Token "{{FOTO}}")
-    $sel = $word.Selection
+    Add-Paragraph -Selection $sel -Text "Prot." -Size 10 -SpaceAfter 12
+    Add-Paragraph -Selection $sel -Text "AL COMANDANTE DEL SERVIZIO DI POLIZIA LOCALE" -Size 10 -Alignment 2 -SpaceAfter 1
+    Add-Paragraph -Selection $sel -Text "Sede" -Size 10 -Alignment 2 -SpaceAfter 4
+    Add-Paragraph -Selection $sel -Text "AL RESPONSABILE DEL SETTORE TECNICO" -Size 10 -Alignment 2 -SpaceAfter 1
+    Add-Paragraph -Selection $sel -Text "Sede" -Size 10 -Alignment 2 -SpaceAfter 14
+    Add-Paragraph -Selection $sel -Text ("OGGETTO: " + $payload.oggetto_verbale) -Size 10 -Bold $true -SpaceAfter 8
+    Add-LongText -Selection $sel -Text ([string]$payload.verbale_generato) -Size 10 -SpaceAfter 7
+    Add-Paragraph -Selection $sel -Text "Gli Operatori di Polizia Locale" -Size 10 -Alignment 1 -SpaceAfter 8
+    Add-Paragraph -Selection $sel -Text ([string]$payload.firma_operatori + " _______________________________") -Size 10 -Alignment 1 -SpaceAfter 4
+
+    Add-PageBreak -Selection $sel
     Add-Paragraph -Selection $sel -Text "Documentazione fotografica" -Size 11 -Bold $true -SpaceAfter 6
-    foreach ($photo in @($payload.foto_items)) {
+    $photos = @($payload.foto_items)
+    if ($photos.Count -eq 0) {
+        Add-Paragraph -Selection $sel -Text "Nessuna foto presente nel fascicolo digitale al momento della generazione." -Size 9 -SpaceAfter 4
+    }
+    foreach ($photo in $photos) {
         Add-Photo -Selection $sel -Word $word -Photo $photo
     }
 
-    [void](Select-Placeholder -Document $doc -Word $word -Token "{{ALLEGATI}}")
-    $sel = $word.Selection
-    Add-Paragraph -Selection $sel -Text "Allegati richiamati" -Size 11 -Bold $true -SpaceAfter 6
-    Add-Paragraph -Selection $sel -Text ("Foto: " + $payload.foto_count + " - Documenti: " + $payload.documenti_count) -Size 9 -SpaceAfter 4
-    foreach ($document in @($payload.documenti)) {
-        Add-Paragraph -Selection $sel -Text ("- " + [string]$document.nome_file + " (" + [string]$document.tipo + ", " + [string]$document.origine + ")") -Size 9 -SpaceAfter 2
+    $documents = @($payload.documenti)
+    if ($documents.Count -gt 0) {
+        Add-PageBreak -Selection $sel
+        Add-Paragraph -Selection $sel -Text "Allegati richiamati" -Size 11 -Bold $true -SpaceAfter 6
+        Add-Paragraph -Selection $sel -Text ("Foto: " + $payload.foto_count + " - Documenti: " + $payload.documenti_count) -Size 9 -SpaceAfter 4
+        foreach ($document in $documents) {
+            Add-Paragraph -Selection $sel -Text ("- " + [string]$document.nome_file + " (" + [string]$document.tipo + ", " + [string]$document.origine + ")") -Size 9 -SpaceAfter 2
+        }
     }
 
+    $doc.Save()
     $doc.ExportAsFixedFormat($PdfPath, 17)
     $doc.Close($false)
     $doc = $null

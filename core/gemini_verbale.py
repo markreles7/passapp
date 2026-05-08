@@ -39,9 +39,47 @@ def build_sopralluogo_verbale_prompt(payload: dict[str, Any]) -> str:
         "Scrivi il corpo narrativo di un verbale di sopralluogo per la Polizia Locale.\n"
         "Usa esclusivamente i dati forniti nel JSON. Non inventare nomi, norme, articoli di legge, misure, violazioni, "
         "date, orari o fatti non presenti. Se un dato manca, scrivi che non risulta indicato.\n"
-        "Stile richiesto: formale, amministrativo, chiaro, adatto a essere inserito in un modello Word di verbale.\n"
-        "Non usare markdown, elenchi puntati, titoli iniziali o formule di fantasia. Restituisci solo il testo del verbale.\n"
-        "Mantieni il testo tra 180 e 450 parole.\n\n"
+        "Stile richiesto: verbale amministrativo discorsivo, simile a una relazione di servizio: "
+        "inizia con una formula del tipo 'I sottoscritti Operatori di Polizia Locale...', descrivi il sopralluogo, "
+        "richiama la segnalazione, riporta quanto accertato, indica eventuali allegati e chiudi con una formula "
+        "del tipo 'Tanto si riferisce per i provvedimenti di competenza'.\n"
+        "Non usare markdown, elenchi puntati, titoli iniziali o formule di fantasia. Restituisci solo il corpo del verbale.\n"
+        "Mantieni il testo tra 350 e 800 parole, con 3-6 paragrafi.\n\n"
+        f"Dati disponibili:\n{facts_text}"
+    )
+
+
+def build_segnalazione_pdf_prompt(payload: dict[str, Any]) -> str:
+    facts = {
+        "numero": payload.get("numero", "-"),
+        "anno": payload.get("anno", "-"),
+        "stato": payload.get("stato", "-"),
+        "data_ora_ricezione": payload.get("data_ora_ricezione", "-"),
+        "nominativo": payload.get("nominativo", "-"),
+        "residenza": payload.get("residenza", "-"),
+        "indirizzo": payload.get("indirizzo", "-"),
+        "telefono": payload.get("telefono", "-"),
+        "modalita": payload.get("modalita", "-"),
+        "categoria": payload.get("categoria", "-"),
+        "priorita": payload.get("priorita", "-"),
+        "stato_lavorazione": payload.get("stato_lavorazione", "-"),
+        "ricevente": payload.get("ricevente", "-"),
+        "descrizione": payload.get("descrizione", "-"),
+        "agente": payload.get("agente", "-"),
+        "data_accertamento": payload.get("data_accertamento", "-"),
+        "verifica": payload.get("verifica", "-"),
+        "riferimento": payload.get("riferimento", "-"),
+    }
+    facts_text = json.dumps(facts, ensure_ascii=False, indent=2)
+    return (
+        "Scrivi una relazione descrittiva di segnalazione per la Polizia Locale.\n"
+        "Deve essere piu corposa di un riepilogo telegrafico, ma deve usare solo i dati forniti. "
+        "Non inventare norme, responsabilita, accertamenti non svolti, nominativi o fatti non presenti.\n"
+        "Stile richiesto: amministrativo, chiaro, adatto a un documento PDF di segnalazione collegato a un eventuale sopralluogo. "
+        "Descrivi chi segnala, quando e con quale modalita, il luogo indicato, il contenuto della segnalazione, "
+        "la ricezione da parte dell'ufficio e l'eventuale stato di lavorazione o verifica registrata.\n"
+        "Non usare markdown, titoli o elenchi puntati. Restituisci solo il testo della relazione.\n"
+        "Mantieni il testo tra 250 e 550 parole, con 2-5 paragrafi.\n\n"
         f"Dati disponibili:\n{facts_text}"
     )
 
@@ -64,16 +102,48 @@ def build_local_sopralluogo_verbale(payload: dict[str, Any]) -> str:
     ufficio = _value(payload.get("ufficio"))
 
     return (
-        f"In relazione alla segnalazione n. {seg_num}, ricevuta in data {seg_date} da {segnalante}, "
-        f"avente ad oggetto quanto riferito per il luogo indicato in {indirizzo}, si da atto che il sopralluogo "
-        f"e stato effettuato in data/ora {data_ora} presso {luogo} dagli operatori {operatori}.\n\n"
-        f"La segnalazione riportava quanto segue: {descrizione}.\n\n"
-        f"All'esito dell'accertamento svolto sul posto risulta quanto segue: {esito}. "
-        f"Le note operative annotate sono le seguenti: {note}.\n\n"
-        f"Per la pratica risulta indicata presenza di foto/allegati: {foto}. "
-        f"Nel fascicolo digitale risultano richiamate {foto_count} foto e {documenti_count} documenti. "
-        f"Necessita di ulteriori atti: {atti}. Ufficio destinatario o competente: {ufficio}.\n\n"
-        "Il presente verbale viene redatto sulla base dei dati inseriti nella segnalazione e nel sopralluogo collegato."
+        f"I sottoscritti Operatori di Polizia Locale, {operatori}, in relazione alla segnalazione n. {seg_num}, "
+        f"ricevuta in data {seg_date} da {segnalante}, si sono portati in data/ora {data_ora} presso {luogo}, "
+        f"al fine di procedere agli accertamenti di competenza sul luogo indicato in {indirizzo}.\n\n"
+        f"La segnalazione aveva ad oggetto quanto segue: {descrizione}. Durante il sopralluogo e stata verificata "
+        f"la situazione presente sul posto e sono state raccolte le annotazioni operative utili alla prosecuzione "
+        f"della pratica.\n\n"
+        f"All'esito dell'accertamento risulta quanto segue: {esito}. Le note operative riportate dagli operatori "
+        f"sono le seguenti: {note}.\n\n"
+        f"Per la pratica risulta indicata presenza di foto/allegati: {foto}. Nel fascicolo digitale risultano "
+        f"richiamate {foto_count} foto e {documenti_count} documenti. Necessita di ulteriori atti: {atti}. "
+        f"Ufficio destinatario o competente: {ufficio}.\n\n"
+        "Tanto si riferisce per i provvedimenti di competenza."
+    )
+
+
+def build_local_segnalazione_text(payload: dict[str, Any]) -> str:
+    numero = _value(payload.get("numero"))
+    ricezione = _value(payload.get("data_ora_ricezione"))
+    nominativo = _value(payload.get("nominativo"))
+    modalita = _value(payload.get("modalita"))
+    indirizzo = _value(payload.get("indirizzo"))
+    residenza = _value(payload.get("residenza"))
+    telefono = _value(payload.get("telefono"))
+    categoria = _value(payload.get("categoria"))
+    priorita = _value(payload.get("priorita"))
+    stato = _value(payload.get("stato_lavorazione"))
+    ricevente = _value(payload.get("ricevente"))
+    descrizione = _value(payload.get("descrizione"))
+    agente = _value(payload.get("agente"))
+    data_accertamento = _value(payload.get("data_accertamento"))
+    verifica = _value(payload.get("verifica"))
+
+    return (
+        f"In data/ora {ricezione} e stata registrata la segnalazione n. {numero}, pervenuta con modalita {modalita} "
+        f"da {nominativo}, residente/domiciliato in {residenza}, recapito telefonico {telefono}. La segnalazione "
+        f"e riferita al luogo indicato in {indirizzo} ed e stata presa in carico dall'operatore ricevente {ricevente}.\n\n"
+        f"Il contenuto riferito dal segnalante e il seguente: {descrizione}. La pratica e classificata nella categoria "
+        f"{categoria}, con priorita {priorita}, e risulta nello stato di lavorazione {stato}.\n\n"
+        f"Per quanto riguarda l'attivita successiva dell'ufficio, risulta indicato come agente verificatore {agente}, "
+        f"con data accertamento {data_accertamento}. Il riscontro registrato e il seguente: {verifica}.\n\n"
+        "La presente relazione viene generata sulla base dei dati inseriti in PassApp e costituisce riepilogo operativo "
+        "della segnalazione, utile alla prosecuzione della pratica e all'eventuale collegamento con richiesta di sopralluogo."
     )
 
 
@@ -83,19 +153,43 @@ def generate_sopralluogo_verbale_with_gemini(payload: dict[str, Any], config: di
     if not ai_config.get("gemini_enabled_for_sopralluogo", True):
         return ""
 
+    prompt = build_sopralluogo_verbale_prompt(payload)
+    return _generate_with_gemini(prompt, ai_config, max_output_tokens=1800)
+
+
+def generate_segnalazione_text_with_gemini(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
+    config = config or load_config()
+    ai_config = config.get("ai", {}) if isinstance(config, dict) else {}
+    if not ai_config.get("gemini_enabled_for_segnalazione_pdf", True):
+        return ""
+
+    prompt = build_segnalazione_pdf_prompt(payload)
+    return _generate_with_gemini(prompt, ai_config, max_output_tokens=1400)
+
+
+def prepare_sopralluogo_verbale_text(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
+    generated = generate_sopralluogo_verbale_with_gemini(payload, config=config)
+    return generated or build_local_sopralluogo_verbale(payload)
+
+
+def prepare_segnalazione_pdf_text(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
+    generated = generate_segnalazione_text_with_gemini(payload, config=config)
+    return generated or build_local_segnalazione_text(payload)
+
+
+def _generate_with_gemini(prompt: str, ai_config: dict[str, Any], *, max_output_tokens: int) -> str:
     api_key = str(ai_config.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY") or "").strip()
     if not api_key:
         return ""
 
     model = _clean_model_name(str(ai_config.get("gemini_model") or DEFAULT_MODEL))
     timeout = _safe_timeout(ai_config.get("gemini_timeout_seconds"))
-    prompt = build_sopralluogo_verbale_prompt(payload)
     request_payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.2,
             "topP": 0.8,
-            "maxOutputTokens": 1200,
+            "maxOutputTokens": max_output_tokens,
         },
     }
     data = json.dumps(request_payload, ensure_ascii=False).encode("utf-8")
@@ -116,11 +210,6 @@ def generate_sopralluogo_verbale_with_gemini(payload: dict[str, Any], config: di
 
     text = _extract_response_text(response_data)
     return _sanitize_generated_text(text)
-
-
-def prepare_sopralluogo_verbale_text(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
-    generated = generate_sopralluogo_verbale_with_gemini(payload, config=config)
-    return generated or build_local_sopralluogo_verbale(payload)
 
 
 def _extract_response_text(response_data: dict[str, Any]) -> str:

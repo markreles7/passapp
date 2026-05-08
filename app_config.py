@@ -49,6 +49,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "ai": {
         "gemini_api_key": "",
         "gemini_model": "gemini-3-flash-preview",
+        "gemini_enabled_for_segnalazione_pdf": True,
         "gemini_enabled_for_sopralluogo": True,
         "gemini_timeout_seconds": 45,
     },

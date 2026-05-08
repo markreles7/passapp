@@ -5,6 +5,7 @@ from pathlib import Path
 
 from core.fascicoli import add_attachment
 from core.sopralluoghi import Sopralluogo
+from qt_app import sopralluoghi_pdf
 from qt_app.sopralluoghi_pdf import build_pdf_payload, safe_pdf_filename
 
 
@@ -66,6 +67,15 @@ class TestSopralluoghiPdf(unittest.TestCase):
             self.assertEqual(payload["firma_operatori"], "Agente Verdi")
             self.assertIn("segnalazione n. 42", payload["oggetto_verbale"])
             self.assertEqual(payload["foto_items"][0]["descrizione"], "Dissesto lato nord")
+
+    def test_template_renderer_does_not_replace_long_ai_text_as_token(self):
+        source = Path(sopralluoghi_pdf.__file__).read_text(encoding="utf-8")
+
+        self.assertNotIn('"VERBALE_GENERATO" = $payload.verbale_generato', source)
+        self.assertIn("$clearRange = $doc.Range()", source)
+        self.assertIn("[void]$clearRange.Delete()", source)
+        self.assertIn("OGGETTO: ", source)
+        self.assertIn("Add-LongText -Selection $sel -Text ([string]$payload.verbale_generato)", source)
 
 
 if __name__ == "__main__":
