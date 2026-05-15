@@ -40,6 +40,7 @@ MODULE_COLORS = {
     "segnalazioni": ("#D97706", "#B45309"),
     "ospitalita": ("#198754", "#146C43"),
     "sopralluoghi": ("#4F46E5", "#3730A3"),
+    "accertamenti_anagrafici": ("#7C3AED", "#5B21B6"),
     "report": ("#0F766E", "#115E59"),
     "contatti": ("#355C7D", "#28475F"),
     "audit": ("#475569", "#334155"),

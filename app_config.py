@@ -35,6 +35,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "logo_path": "assets/logo.jpg",
         "pass_invalidi_network_folder": r"R:\Polizia_locale\INVALIDI",
         "pass_invalidi_pattern": "REGISTRO INVALIDI COMUNE*.xlsx",
+        "accertamenti_anagrafici_file": "data/accertamenti_anagrafici.json",
+        "accertamenti_anagrafici_excel": r"R:\Polizia_locale\ACCERTAMENTI ANAGRAFICI.xlsx",
         "ospitalita_network_folder": r"R:\Comune\COMUNICAZIONE OSPITALITA' STRANIERI",
         "ospitalita_patterns": [
             "registro comunicazioni *.xls",
@@ -141,6 +143,12 @@ def _apply_modern_ui_theme(config: dict[str, Any]) -> None:
             "menu_title": "Sopralluoghi",
             "menu_description": "Gestione sopralluoghi collegati alle segnalazioni.",
             "icon": "SP",
+        },
+        "accertamenti_anagrafici": {
+            "title": "Accertamenti Anagrafici - Polizia Locale",
+            "menu_title": "Accertamenti Anagrafici",
+            "menu_description": "Elenco accertamenti di residenza e tentativi effettuati.",
+            "icon": "AA",
         },
         "report": {
             "title": "Report mensile",

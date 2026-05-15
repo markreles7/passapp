@@ -9,6 +9,7 @@ NAV_ITEMS = (
     ("pass_invalidi", "PI", "Pass Invalidi"),
     ("segnalazioni", "SC", "Segnalazioni"),
     ("sopralluoghi", "SP", "Sopralluoghi"),
+    ("accertamenti_anagrafici", "AA", "Accertamenti Anagrafici"),
     ("ospitalita", "OS", "Ospitalita"),
     ("report", "RM", "Report mensile"),
     ("contatti", "CT", "Contatti utili"),

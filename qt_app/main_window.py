@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QThread, QTimer
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QMessageBox, QStackedWidget, QWidget
 
+from qt_app.accertamenti_anagrafici import AccertamentiAnagraficiPage
 from qt_app.configuration import ConfigurationPage
 from qt_app.contacts import ContactsPage
 from qt_app.dashboard import DashboardPage
@@ -46,6 +47,7 @@ class MainWindow(QMainWindow):
         segnalazioni_page.request_sopralluoghi.connect(self.open_sopralluoghi_for_segnalazione)
         self._add_page("segnalazioni", segnalazioni_page)
         self._add_page("sopralluoghi", sopralluoghi_page)
+        self._add_page("accertamenti_anagrafici", AccertamentiAnagraficiPage(config))
         self._add_page("ospitalita", OspitalitaPage(config))
         self._add_page("report", ReportPage(config))
         self._add_page("contatti", ContactsPage(config))
