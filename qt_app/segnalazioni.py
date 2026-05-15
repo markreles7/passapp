@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import replace
 import datetime as dt
-import json
-import os
 from pathlib import Path
-import shutil
-import tempfile
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
@@ -16,7 +12,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -41,20 +36,15 @@ from core.fascicoli import (
     ensure_fascicolo,
     fascicolo_exists,
     generate_photo_sheet_doc,
-    generate_photo_sheet_html,
     get_fascicolo_path,
     list_attachments,
     open_path,
 )
 from core.sopralluoghi import STATI_SOPRALLUOGO, list_for_segnalazione
-import segnalazioni as segn_mod
-from segnalazioni import (
-    CATEGORIA_DEFAULT,
+from core.segnalazioni import (
     CATEGORIA_OPZIONI,
     MODALITA_OPZIONI,
-    PRIORITA_DEFAULT,
     PRIORITA_OPZIONI,
-    STATO_LAVORAZIONE_DEFAULT,
     STATO_LAVORAZIONE_OPZIONI,
     Segnalazione,
     normalize_categoria,
@@ -62,6 +52,11 @@ from segnalazioni import (
     normalize_stato_lavorazione,
     segnalazione_matches_filters,
     segnalazione_sort_key,
+    load_segnalazioni,
+    next_progressivo,
+    read_segnalazioni_payload,
+    save_segnalazioni,
+    SEGNALAZIONI_PDF_DIR,
 )
 from qt_app.fascicolo import FascicoloDialog
 from qt_app.segnalazioni_pdf import build_pdf_payload, safe_pdf_filename
@@ -706,66 +701,20 @@ class SegnalazioniPage(QWidget):
         return panel
 
     def load_from_disk(self) -> None:
-        self.segnalazioni = []
-        self.next_progressivo = 1
-        payload = self._read_payload_file(segn_mod.SEGNALAZIONI_FILE)
-        if payload is None:
-            payload = self._read_payload_file(segn_mod.SEGNALAZIONI_BACKUP_FILE)
-        if payload is None:
-            return
-        items = payload.get("segnalazioni", []) if isinstance(payload, dict) else payload
-        if not isinstance(items, list):
-            return
-        max_progressivo = 0
-        for raw in items:
-            if not isinstance(raw, dict):
-                continue
-            seg = Segnalazione.from_dict(raw)
-            if seg is None:
-                continue
-            self.segnalazioni.append(seg)
-            max_progressivo = max(max_progressivo, seg.numero_progressivo)
+        self.segnalazioni, _source = load_segnalazioni()
         self.segnalazioni.sort(key=lambda item: item.numero_progressivo)
-        self.next_progressivo = max_progressivo + 1 if max_progressivo > 0 else 1
+        self.next_progressivo = next_progressivo(self.segnalazioni)
 
     def _read_payload_file(self, path: Path):
-        if not path.exists():
-            return None
-        try:
-            with path.open("r", encoding="utf-8") as handle:
-                payload = json.load(handle)
-        except (OSError, json.JSONDecodeError):
-            return None
-        return payload if isinstance(payload, (dict, list)) else None
+        return read_segnalazioni_payload(path)
 
     def save_to_disk(self) -> bool:
-        tmp_path: Path | None = None
         try:
-            target = segn_mod.SEGNALAZIONI_FILE
-            target.parent.mkdir(parents=True, exist_ok=True)
-            payload = {"segnalazioni": [asdict(seg) for seg in self.segnalazioni]}
-            tmp_fd, tmp_name = tempfile.mkstemp(prefix="segnalazioni_", suffix=".tmp", dir=str(target.parent))
-            tmp_path = Path(tmp_name)
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
-                handle.flush()
-                os.fsync(handle.fileno())
-            if target.exists():
-                try:
-                    shutil.copyfile(target, segn_mod.SEGNALAZIONI_BACKUP_FILE)
-                except OSError:
-                    pass
-            os.replace(tmp_path, target)
+            save_segnalazioni(self.segnalazioni)
             return True
         except OSError as exc:
             QMessageBox.warning(self, "Salvataggio non riuscito", f"Impossibile salvare il file segnalazioni.\n\n{exc}")
             return False
-        finally:
-            if tmp_path is not None and tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError:
-                    pass
 
     def refresh_tables(self) -> None:
         self._fill_table(self.open_table, "in_corso")
@@ -1315,7 +1264,7 @@ class SegnalazioniPage(QWidget):
             return
 
         try:
-            segn_mod.SEGNALAZIONI_PDF_DIR.mkdir(parents=True, exist_ok=True)
+            SEGNALAZIONI_PDF_DIR.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
 
@@ -1323,7 +1272,7 @@ class SegnalazioniPage(QWidget):
         path, _filter = QFileDialog.getSaveFileName(
             self,
             "Salva segnalazione in PDF",
-            str(segn_mod.SEGNALAZIONI_PDF_DIR / default_name),
+            str(SEGNALAZIONI_PDF_DIR / default_name),
             "PDF (*.pdf)",
         )
         if not path:

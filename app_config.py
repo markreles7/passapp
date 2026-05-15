@@ -7,7 +7,38 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from ui_style import MODULE_COLORS, modern_theme
+MODULE_COLORS = {
+    "pass_invalidi": ("#2563EB", "#1D4ED8"),
+    "segnalazioni": ("#D97706", "#B45309"),
+    "ospitalita": ("#198754", "#146C43"),
+    "sopralluoghi": ("#4F46E5", "#3730A3"),
+    "accertamenti_anagrafici": ("#7C3AED", "#5B21B6"),
+    "report": ("#0F766E", "#115E59"),
+    "contatti": ("#355C7D", "#28475F"),
+    "audit": ("#475569", "#334155"),
+}
+
+
+def modern_theme() -> dict[str, str]:
+    return {
+        "bg": "#F5F7FA",
+        "bg2": "#EEF2F7",
+        "surface": "#FFFFFF",
+        "border": "#E5E7EB",
+        "accent": "#2563EB",
+        "accent_dark": "#1D4ED8",
+        "success": "#198754",
+        "warning": "#D97706",
+        "danger": "#B42318",
+        "text": "#1F2937",
+        "text_muted": "#6B7280",
+        "text_dim": "#9CA3AF",
+        "sidebar": "#0B2E5F",
+        "sidebar_dark": "#08264E",
+        "sidebar_active": "#2563EB",
+        "secondary": "#F3F4F6",
+        "shadow": "#D8DEE8",
+    }
 
 SOURCE_DIR = Path(__file__).resolve().parent
 if getattr(sys, "frozen", False):

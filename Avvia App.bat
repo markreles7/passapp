@@ -1,6 +1,11 @@
 @echo off
 cd /d "%~dp0"
 
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" main.py
+    exit /b %errorlevel%
+)
+
 python --version >nul 2>&1
 if %errorlevel% equ 0 (
     python main.py

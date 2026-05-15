@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread
@@ -11,7 +10,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -42,8 +40,7 @@ from core.sopralluoghi import (
     upsert_sopralluogo,
     validate_sopralluogo,
 )
-import segnalazioni as segn_mod
-from segnalazioni import Segnalazione
+from core.segnalazioni import SEGNALAZIONI_BACKUP_FILE, SEGNALAZIONI_FILE, Segnalazione, read_segnalazioni_payload
 from qt_app.sopralluoghi_pdf import SEGNALAZIONI_PDF_DIR, safe_pdf_filename
 from qt_app.widgets import page_header
 from qt_app.workers import SopralluogoPdfWorker
@@ -533,13 +530,9 @@ class SopralluoghiPage(QWidget):
             self.attachment_status.setText(f"Fascicolo segnalazione {current.segnalazione_id}: stato non disponibile")
 
     def _load_segnalazione(self, segnalazione_id: int) -> Segnalazione | None:
-        for path in (segn_mod.SEGNALAZIONI_FILE, segn_mod.SEGNALAZIONI_BACKUP_FILE):
-            if not path.exists():
-                continue
-            try:
-                with path.open("r", encoding="utf-8") as handle:
-                    payload = json.load(handle)
-            except (OSError, json.JSONDecodeError):
+        for path in (SEGNALAZIONI_FILE, SEGNALAZIONI_BACKUP_FILE):
+            payload = read_segnalazioni_payload(path)
+            if payload is None:
                 continue
             items = payload.get("segnalazioni", []) if isinstance(payload, dict) else payload
             if not isinstance(items, list):

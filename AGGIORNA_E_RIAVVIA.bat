@@ -96,7 +96,7 @@ echo.
 echo  [OK] Aggiornamento completato.
 echo  Riavvio PassApp...
 timeout /t 1 /nobreak >nul
-start "" "%SCRIPT_DIR%Avvia App Qt.bat"
+start "" "%SCRIPT_DIR%Avvia App.bat"
 exit /b 0
 
 :errore

@@ -225,7 +225,7 @@ def _build_ospitalita_section(month: int, year: int, sources: ReportSources) -> 
 def _load_pass_records(sources: ReportSources) -> tuple[list[dict[str, Any]], list[str]]:
     if sources.pass_records is not None:
         return sources.pass_records, sources.pass_errors or []
-    from pass_invalidi import carica_tutti
+    from core.pass_invalidi_service import carica_tutti
 
     records, _files, errors = carica_tutti()
     return records, errors
@@ -234,7 +234,7 @@ def _load_pass_records(sources: ReportSources) -> tuple[list[dict[str, Any]], li
 def _load_segnalazioni(sources: ReportSources) -> list[dict[str, Any]]:
     if sources.segnalazioni is not None:
         return sources.segnalazioni
-    from segnalazioni import SEGNALAZIONI_BACKUP_FILE, SEGNALAZIONI_FILE
+    from core.segnalazioni import SEGNALAZIONI_BACKUP_FILE, SEGNALAZIONI_FILE
 
     return _read_json_items(SEGNALAZIONI_FILE, SEGNALAZIONI_BACKUP_FILE, "segnalazioni")
 
@@ -252,7 +252,7 @@ def _load_sopralluoghi(sources: ReportSources) -> list[dict[str, Any]]:
 def _load_ospitalita_records(sources: ReportSources) -> tuple[list[dict[str, Any]], list[str]]:
     if sources.ospitalita_records is not None:
         return sources.ospitalita_records, sources.ospitalita_errors or []
-    from ospitalita_stranieri import FOLDER_OSPITALITA, _extract_records, _list_input_files
+    from core.ospitalita_service import FOLDER_OSPITALITA, _extract_records, _list_input_files
 
     if not os.path.isdir(FOLDER_OSPITALITA):
         return [], ["Cartella origine non raggiungibile."]

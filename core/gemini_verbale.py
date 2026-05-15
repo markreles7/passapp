@@ -19,6 +19,10 @@ DEFAULT_BASE_PROMPT = (
     "Mantieni un tono neutro e istituzionale, evitando frasi colloquiali o valutazioni personali."
 )
 
+SOPRALLUOGO_COPY_FIELDS = ("descrizione", "esito", "note")
+SEGNALAZIONE_COPY_FIELDS = ("descrizione", "verifica", "agente", "riferimento", "note")
+MIN_AI_TEXT_LENGTH = 180
+
 
 def build_sopralluogo_verbale_prompt(payload: dict[str, Any], base_prompt: str | None = None) -> str:
     facts = {
@@ -45,18 +49,43 @@ def build_sopralluogo_verbale_prompt(payload: dict[str, Any], base_prompt: str |
     base = _base_prompt_text(base_prompt)
     return (
         f"{base}\n\n"
-        "Scrivi il corpo narrativo di un verbale di sopralluogo per la Polizia Locale.\n"
-        "Usa esclusivamente i dati forniti nel JSON. Non inventare nomi, norme, articoli di legge, misure, violazioni, "
-        "date, orari o fatti non presenti. Se un dato manca, scrivi che non risulta indicato.\n"
-        "Stile richiesto: verbale amministrativo discorsivo, simile a una relazione di servizio: "
-        "inizia con una formula del tipo 'I sottoscritti Operatori di Polizia Locale...', descrivi il sopralluogo, "
-        "richiama la segnalazione, riporta quanto accertato, indica eventuali allegati e chiudi con una formula "
-        "del tipo 'Tanto si riferisce per i provvedimenti di competenza'.\n"
-        "Riformula in modo istituzionale eventuali frasi colloquiali o operative inserite dagli utenti, mantenendo pero "
-        "il contenuto sostanziale. Distingui il fatto segnalato da quanto accertato durante il sopralluogo.\n"
-        "Non usare markdown, elenchi puntati, titoli iniziali o formule di fantasia. Restituisci solo il corpo del verbale.\n"
-        "Mantieni il testo tra 350 e 800 parole, con 3-6 paragrafi.\n\n"
-        f"Dati disponibili:\n{facts_text}"
+        "Dati grezzi\n"
+        f"{facts_text}\n\n"
+        "Compito\n"
+        "Agisci come assistente redazionale per un ufficio di Polizia Locale italiana. Trasforma gli appunti "
+        "grezzi della segnalazione e del sopralluogo in una relazione tecnico-amministrativa professionale, "
+        "chiara, istituzionale e pronta per essere inserita nel documento. Non limitarti a riordinare o "
+        "riassumere i campi: devi riformulare in linguaggio d'ufficio, distinguendo quanto e stato segnalato "
+        "da quanto e stato accertato sul posto.\n\n"
+        "Regole anti-copia\n"
+        "Non copiare frasi colloquiali dell'operatore o del cittadino. Non riprodurre espressioni come "
+        "'sono andati sul luogo', 'brutto tempo', 'forse penzolante', 'probabilita che cada' o ripetizioni "
+        "inutili del luogo. Trasforma le note operative in linguaggio tecnico. Preferisci formule come "
+        "'si sono portati presso', 'e stata rilevata la presenza di', 'e stata accertata/verificata', "
+        "'allo stato dei luoghi', 'al momento del sopralluogo', 'non sono emersi elementi tali da', "
+        "'si ritiene opportuno interessare' e 'per quanto di competenza'.\n\n"
+        "Struttura obbligatoria del testo\n"
+        "Il testo deve essere discorsivo, senza titoli interni, ma deve contenere in ordine logico: premessa "
+        "sulla segnalazione ricevuta; attivita svolta dagli operatori; stato dei luoghi accertato; valutazione "
+        "operativa prudente; eventuale proposta o inoltro all'ufficio competente; chiusura istituzionale. "
+        "Se non risultano foto, scrivi: 'Alla data di generazione del presente atto non risulta acquisita "
+        "documentazione fotografica nel fascicolo digitale.' Se risultano allegati, richiamali in modo sintetico.\n\n"
+        "Esempio di trasformazione\n"
+        "Appunto grezzo: 'un cittadino segnala un elemento danneggiato forse pericoloso; gli operatori sono "
+        "andati sul posto e hanno visto che non da fastidio; intervento quando passa il brutto tempo'. "
+        "Forma attesa: 'Con riferimento alla segnalazione acquisita agli atti, relativa alla possibile presenza "
+        "di un elemento danneggiato presso il luogo indicato, gli operatori si sono portati sul posto per gli "
+        "accertamenti di competenza. Al momento del sopralluogo veniva rilevata una criticita da valutare, "
+        "senza evidenza di interferenze immediate con la pubblica circolazione, ferma restando l'opportunita "
+        "di intervento manutentivo da parte del servizio competente non appena le condizioni lo consentano.' "
+        "L'esempio serve solo come stile: non copiarlo e non introdurre fatti non presenti nei dati grezzi.\n\n"
+        "Divieti\n"
+        "Non inventare norme, articoli di legge, responsabilita, misure, violazioni, pericoli, assenza assoluta "
+        "di pericolo o fatti non indicati. Usa formule caute come 'verosimilmente', 'presumibilmente', "
+        "'allo stato' o 'per quanto constatabile al momento del sopralluogo' solo se coerenti con i dati.\n\n"
+        "Output richiesto\n"
+        "Restituisci solo il corpo del verbale/relazione, senza markdown, elenchi puntati, titoli o formattazione "
+        "speciale. Produci un testo tra 250 e 500 parole, salvo dati molto scarsi."
     )
 
 
@@ -85,17 +114,42 @@ def build_segnalazione_pdf_prompt(payload: dict[str, Any], base_prompt: str | No
     base = _base_prompt_text(base_prompt)
     return (
         f"{base}\n\n"
-        "Scrivi una relazione descrittiva di segnalazione per la Polizia Locale.\n"
-        "Deve essere piu corposa di un riepilogo telegrafico, ma deve usare solo i dati forniti. "
-        "Non inventare norme, responsabilita, accertamenti non svolti, nominativi o fatti non presenti.\n"
-        "Stile richiesto: amministrativo, chiaro, adatto a un documento PDF di segnalazione collegato a un eventuale sopralluogo. "
-        "Descrivi chi segnala, quando e con quale modalita, il luogo indicato, il contenuto della segnalazione, "
-        "la ricezione da parte dell'ufficio e l'eventuale stato di lavorazione o verifica registrata.\n"
-        "Conserva il senso della descrizione originale, ma rendila leggibile come relazione d'ufficio. "
-        "Se il sopralluogo non e ancora concluso, non scrivere che e stato accertato un fatto.\n"
-        "Non usare markdown, titoli o elenchi puntati. Restituisci solo il testo della relazione.\n"
-        "Mantieni il testo tra 250 e 550 parole, con 2-5 paragrafi.\n\n"
-        f"Dati disponibili:\n{facts_text}"
+        "Ruolo\n"
+        "Sei un assistente redazionale per la Polizia Locale italiana. Scrivi in linguaggio "
+        "tecnico-amministrativo, istituzionale, prudente e leggibile.\n\n"
+        "Compito\n"
+        "Genera una relazione di segnalazione professionale e autonoma. Non devi fare un semplice riepilogo: "
+        "devi riformulare i dati registrati in PassApp, distinguere quanto riferito dal segnalante da quanto "
+        "eventualmente accertato dall'ufficio e trasformare note grezze o colloquiali in testo tecnico.\n\n"
+        "Dati grezzi disponibili\n"
+        f"{facts_text}\n\n"
+        "Regole anti-copia\n"
+        "Non copiare il testo dei campi grezzi. Non scrivere 'Il contenuto riferito dal segnalante e il seguente', "
+        "'Il riscontro registrato e il seguente', 'Riscontro registrato in app', 'sono andati sul luogo', "
+        "'brutto tempo', 'forse penzolante', 'probabilita che cada' o 'non provocando pericoli'. Trasforma "
+        "'forse' in 'presumibilmente', 'secondo quanto riferito' o 'verosimilmente' solo se coerente; "
+        "'penzolante' in 'parzialmente distaccata', 'sospesa' o 'instabile' solo se coerente; 'cada sulla strada' "
+        "in 'possa interessare la sede stradale'; 'brutto tempo' in 'condizioni meteorologiche avverse/non "
+        "favorevoli'; 'sono andati sul luogo' in 'si sono portati presso il luogo indicato'.\n\n"
+        "Struttura obbligatoria\n"
+        "A) Premessa di ricezione: indica data, modalita, numero e acquisizione agli atti. "
+        "B) Oggetto della segnalazione: riformula il contenuto riferito e indica il luogo. "
+        "C) Attivita successiva o accertamento: inseriscila solo se risulta dai dati. "
+        "D) Esito tecnico-amministrativo: riformula l'esito o la verifica in linguaggio tecnico. "
+        "E) Valutazione prudente: non affermare pericoli o assenza di pericoli in modo assoluto se i dati sono "
+        "incerti; usa formule come 'per quanto constatabile' o 'allo stato'. "
+        "F) Chiusura: indica che la relazione resta agli atti per la prosecuzione della pratica e per gli "
+        "eventuali provvedimenti di competenza.\n\n"
+        "Lessico tecnico consigliato\n"
+        "Usa formule come 'veniva acquisita agli atti', 'relativa a', 'secondo quanto riferito', 'dagli atti "
+        "risulta', 'in sede di accertamento veniva rilevato', 'per quanto registrato', 'ufficio competente', "
+        "'valutazioni di competenza' e 'prosecuzione della pratica'.\n\n"
+        "Divieti\n"
+        "Non inventare norme, responsabilita, violazioni, misure, sopralluoghi, nominativi o fatti non presenti. "
+        "Non usare markdown, elenchi puntati, titoli interni o formattazione speciale.\n\n"
+        "Output richiesto\n"
+        "Restituisci solo il corpo della relazione, pronto da inserire nel PDF, tra 250 e 500 parole salvo dati "
+        "molto scarsi. Distingui quanto riferito da quanto accertato."
     )
 
 
@@ -104,12 +158,12 @@ def build_local_sopralluogo_verbale(payload: dict[str, Any]) -> str:
     seg_date = _value(payload.get("segnalazione_data"))
     segnalante = _value(payload.get("segnalante"))
     indirizzo = _value(payload.get("indirizzo_segnalazione"))
-    descrizione = _value(payload.get("descrizione"))
+    descrizione = _strip_terminal_punctuation(_technical_rewrite_hint(_value(payload.get("descrizione"))))
     data_ora = _value(payload.get("data_ora"))
     luogo = _value(payload.get("luogo"))
     operatori = _value(payload.get("operatori"))
-    esito = _value(payload.get("esito"))
-    note = _value(payload.get("note"))
+    esito = _strip_terminal_punctuation(_technical_rewrite_hint(_value(payload.get("esito"))))
+    note = _strip_terminal_punctuation(_technical_rewrite_hint(_value(payload.get("note"))))
     foto = _value(payload.get("foto"))
     foto_count = _value(payload.get("foto_count"), "0")
     documenti_count = _value(payload.get("documenti_count"), "0")
@@ -118,17 +172,19 @@ def build_local_sopralluogo_verbale(payload: dict[str, Any]) -> str:
 
     allegati_text = _attachment_summary(foto, foto_count, documenti_count)
     return (
-        f"I sottoscritti Operatori di Polizia Locale, {operatori}, in relazione alla segnalazione n. {seg_num}, "
-        f"ricevuta in data {seg_date} da {segnalante}, si sono portati in data/ora {data_ora} presso {luogo}, "
-        f"al fine di procedere agli accertamenti di competenza sul luogo indicato in {indirizzo}.\n\n"
-        f"La segnalazione aveva ad oggetto quanto segue: {descrizione}. Durante il sopralluogo e stata verificata "
-        f"la situazione presente sul posto e sono state raccolte le annotazioni operative utili alla prosecuzione "
-        f"della pratica.\n\n"
-        f"All'esito dell'accertamento risulta quanto segue: {esito}. Le note operative riportate dagli operatori "
-        f"sono le seguenti: {note}.\n\n"
-        f"{allegati_text} Necessita di ulteriori atti: {atti}. "
-        f"Ufficio destinatario o competente: {ufficio}.\n\n"
-        "Tanto si riferisce per i provvedimenti di competenza."
+        f"Con riferimento alla segnalazione n. {seg_num}, ricevuta in data {seg_date} da {segnalante} e relativa "
+        f"al luogo indicato in {indirizzo}, gli operatori di Polizia Locale {operatori} si sono portati in data/ora "
+        f"{data_ora} presso {luogo} per procedere agli accertamenti di competenza.\n\n"
+        f"La segnalazione riguardava la situazione descritta come segue: {descrizione}. "
+        "Al momento del sopralluogo e stata verificata la situazione "
+        f"presente sul posto, distinguendo quanto riferito in fase di ricezione da quanto direttamente riscontrato "
+        f"allo stato dei luoghi.\n\n"
+        f"In sede di accertamento veniva rilevato quanto segue: {esito}. Per quanto registrato dagli operatori, "
+        f"le indicazioni operative successive sono ricondotte a quanto segue: {note}.\n\n"
+        f"{allegati_text} Dagli atti risulta necessita di ulteriori atti: {atti}. "
+        f"L'eventuale seguito della pratica viene rimesso all'ufficio competente indicato come {ufficio}, "
+        "per le valutazioni e i provvedimenti di competenza.\n\n"
+        "Tanto si riferisce per quanto di competenza."
     )
 
 
@@ -144,21 +200,26 @@ def build_local_segnalazione_text(payload: dict[str, Any]) -> str:
     priorita = _value(payload.get("priorita"))
     stato = _value(payload.get("stato_lavorazione"))
     ricevente = _value(payload.get("ricevente"))
-    descrizione = _value(payload.get("descrizione"))
+    descrizione = _strip_terminal_punctuation(_technical_rewrite_hint(_value(payload.get("descrizione"))))
     agente = _value(payload.get("agente"))
     data_accertamento = _value(payload.get("data_accertamento"))
-    verifica = _value(payload.get("verifica"))
+    verifica = _strip_terminal_punctuation(_technical_rewrite_hint(_value(payload.get("verifica"))))
+    riferimento = _value(payload.get("riferimento"))
 
     return (
-        f"In data/ora {ricezione} e stata registrata la segnalazione n. {numero}, pervenuta con modalita {modalita} "
-        f"da {nominativo}, residente/domiciliato in {residenza}, recapito telefonico {telefono}. La segnalazione "
-        f"e riferita al luogo indicato in {indirizzo} ed e stata presa in carico dall'operatore ricevente {ricevente}.\n\n"
-        f"Il contenuto riferito dal segnalante e il seguente: {descrizione}. La pratica e classificata nella categoria "
-        f"{categoria}, con priorita {priorita}, e risulta nello stato di lavorazione {stato}.\n\n"
-        f"Per quanto riguarda l'attivita successiva dell'ufficio, risulta indicato come agente verificatore {agente}, "
-        f"con data accertamento {data_accertamento}. Il riscontro registrato e il seguente: {verifica}.\n\n"
-        "La presente relazione viene generata sulla base dei dati inseriti in PassApp e costituisce riepilogo operativo "
-        "della segnalazione, utile alla prosecuzione della pratica e all'eventuale collegamento con richiesta di sopralluogo."
+        f"In data/ora {ricezione} veniva acquisita agli atti dell'ufficio la segnalazione n. {numero}, riferimento "
+        f"{riferimento}, pervenuta con modalita {modalita} da {nominativo}, residente/domiciliato in {residenza}, "
+        f"recapito telefonico {telefono}. La pratica risulta riferita al luogo indicato in {indirizzo} ed e stata "
+        f"registrata dall'operatore ricevente {ricevente}.\n\n"
+        f"Da quanto riferito dal segnalante emergeva quanto segue: {descrizione}. "
+        f"La segnalazione veniva classificata nella categoria {categoria}, con priorita {priorita}, e risulta "
+        f"allo stato di lavorazione {stato}.\n\n"
+        f"Dagli atti risulta eventuale attivita di verifica in data {data_accertamento}, con indicazione "
+        f"dell'agente verificatore {agente}. In sede di accertamento o aggiornamento della pratica veniva "
+        f"registrato quanto segue: {verifica}.\n\n"
+        "Per quanto registrato, la situazione viene rimessa all'ufficio competente per le valutazioni e gli "
+        "eventuali interventi di competenza. La presente relazione viene redatta sulla base dei dati presenti "
+        "in PassApp e resta agli atti dell'ufficio per la prosecuzione e la definizione della pratica."
     )
 
 
@@ -169,7 +230,20 @@ def generate_sopralluogo_verbale_with_gemini(payload: dict[str, Any], config: di
         return ""
 
     prompt = build_sopralluogo_verbale_prompt(payload, base_prompt=ai_config.get("gemini_base_prompt"))
-    return _generate_with_gemini(prompt, ai_config, max_output_tokens=1800)
+    generated = _generate_with_gemini(prompt, ai_config, max_output_tokens=1800)
+    validated = _validate_sopralluogo_ai_text(generated, payload)
+    if validated:
+        return validated
+
+    retry_prompt = (
+        f"{prompt}\n\n"
+        "Il testo precedente era troppo simile agli appunti grezzi o non rispettava le regole. Riscrivi "
+        "completamente in linguaggio tecnico-amministrativo da Polizia Locale, senza copiare le frasi originali. "
+        "Distingui chiaramente segnalazione ricevuta, attivita svolta, stato dei luoghi accertato, valutazione "
+        "operativa e chiusura istituzionale. Restituisci solo il corpo del verbale."
+    )
+    retry = _generate_with_gemini(retry_prompt, ai_config, max_output_tokens=1800)
+    return _validate_sopralluogo_ai_text(retry, payload)
 
 
 def generate_segnalazione_text_with_gemini(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
@@ -179,7 +253,19 @@ def generate_segnalazione_text_with_gemini(payload: dict[str, Any], config: dict
         return ""
 
     prompt = build_segnalazione_pdf_prompt(payload, base_prompt=ai_config.get("gemini_base_prompt"))
-    return _generate_with_gemini(prompt, ai_config, max_output_tokens=1400)
+    generated = _generate_with_gemini(prompt, ai_config, max_output_tokens=1400)
+    validated = _validate_segnalazione_ai_text(generated, payload)
+    if validated:
+        return validated
+
+    retry_prompt = (
+        f"{prompt}\n\n"
+        "Il testo precedente era troppo simile agli appunti grezzi. Riscrivi completamente in linguaggio "
+        "tecnico-amministrativo da Polizia Locale, senza copiare le frasi originali. Distingui quanto riferito "
+        "dal segnalante da quanto accertato o registrato dall'ufficio. Restituisci solo il corpo della relazione."
+    )
+    retry = _generate_with_gemini(retry_prompt, ai_config, max_output_tokens=1400)
+    return _validate_segnalazione_ai_text(retry, payload)
 
 
 def prepare_sopralluogo_verbale(payload: dict[str, Any], config: dict[str, Any] | None = None) -> tuple[str, str]:
@@ -249,9 +335,161 @@ def _extract_response_text(response_data: dict[str, Any]) -> str:
 
 def _sanitize_generated_text(text: str) -> str:
     text = str(text or "").strip()
+    text = re.sub(r"\r\n?", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]+", " ", text)
     return text[:6000].strip()
+
+
+def _looks_like_raw_copy(
+    generated: str,
+    payload: dict[str, Any],
+    fields: tuple[str, ...] = SOPRALLUOGO_COPY_FIELDS,
+) -> bool:
+    generated_normalized = _normalize_for_copy(generated)
+    if not generated_normalized:
+        return False
+
+    matches = 0
+    for field in fields:
+        raw_value = _raw_payload_text(payload, field)
+        raw_normalized = _normalize_for_copy(raw_value)
+        if len(raw_normalized) < 45:
+            continue
+
+        for segment in _raw_copy_segments(raw_normalized):
+            if segment in generated_normalized:
+                matches += 1
+                if len(segment) >= 90 or matches >= 2:
+                    return True
+                break
+    return False
+
+
+def _validate_sopralluogo_ai_text(generated: str, payload: dict[str, Any]) -> str:
+    text = _strip_document_noise(generated, titles=("verbale di sopralluogo", "relazione di sopralluogo"))
+    if len(text) < MIN_AI_TEXT_LENGTH:
+        return ""
+    if _looks_like_raw_copy(text, payload, SOPRALLUOGO_COPY_FIELDS):
+        return ""
+    if _contains_forbidden_phrases(text, ("sono andati sul luogo", "brutto tempo", "forse penzolante")):
+        return ""
+    return text
+
+
+def _validate_segnalazione_ai_text(generated: str, payload: dict[str, Any]) -> str:
+    text = _strip_document_noise(generated, titles=("relazione di segnalazione", "segnalazione"))
+    if len(text) < MIN_AI_TEXT_LENGTH:
+        return ""
+    if _looks_like_raw_copy(text, payload, SEGNALAZIONE_COPY_FIELDS):
+        return ""
+    if _contains_forbidden_phrases(
+        text,
+        (
+            "Il contenuto riferito dal segnalante e il seguente",
+            "Il riscontro registrato e il seguente",
+            "Riscontro registrato in app",
+            "sono andati sul luogo",
+            "brutto tempo",
+            "forse penzolante",
+        ),
+    ):
+        return ""
+    return text
+
+
+def _strip_document_noise(text: str, *, titles: tuple[str, ...]) -> str:
+    text = _sanitize_generated_text(text)
+    if not text:
+        return ""
+
+    text = re.sub(r"```(?:\w+)?", "", text)
+    text = text.replace("```", "")
+    text = re.sub(r"[*_`#]+", "", text)
+
+    cleaned_lines: list[str] = []
+    skipped_title = False
+    for line in text.splitlines():
+        clean = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
+        normalized = _normalize_for_copy(clean)
+        if not skipped_title and normalized in {_normalize_for_copy(title) for title in titles}:
+            skipped_title = True
+            continue
+        cleaned_lines.append(clean)
+
+    text = "\n".join(cleaned_lines)
+    return _sanitize_generated_text(text)
+
+
+def _contains_forbidden_phrases(text: str, phrases: tuple[str, ...]) -> bool:
+    normalized = _normalize_for_copy(text)
+    return any(_normalize_for_copy(phrase) in normalized for phrase in phrases)
+
+
+def _raw_payload_text(payload: dict[str, Any], field: str) -> str:
+    value = payload.get(field, "")
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(str(item) for item in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value or "")
+
+
+def _normalize_for_copy(text: str) -> str:
+    text = str(text or "").lower()
+    text = re.sub(r"[^\w\sàèéìòù']", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _raw_copy_segments(text: str, *, min_length: int = 55, window: int = 90) -> list[str]:
+    if len(text) <= window:
+        return [text] if len(text) >= min_length else []
+
+    segments: list[str] = []
+    start = 0
+    step = 35
+    while start < len(text):
+        segment = text[start : start + window].strip()
+        if len(segment) >= min_length:
+            segments.append(segment)
+        start += step
+    return segments
+
+
+def _technical_rewrite_hint(text: str) -> str:
+    result = str(text or "").strip()
+    if not result:
+        return "-"
+
+    replacements = (
+        (
+            "non appena passa il brutto tempo",
+            "non appena cessano le condizioni meteorologiche non favorevoli",
+        ),
+        (
+            "quando passa il brutto tempo",
+            "quando cessano le condizioni meteorologiche non favorevoli",
+        ),
+        ("probabilità che cada sulla strada", "possibile interessamento della sede stradale"),
+        ("probabilita che cada sulla strada", "possibile interessamento della sede stradale"),
+        ("cade sulla strada", "possa interessare la sede stradale"),
+        ("brutto tempo", "condizioni meteorologiche non favorevoli"),
+        ("forse penzolante", "presumibilmente parzialmente sospeso"),
+        ("penzolante", "parzialmente sospeso"),
+        ("forse", "presumibilmente"),
+        ("sono andati sul luogo", "si sono portati presso il luogo indicato"),
+        ("non provocando pericoli", "senza evidenziare, al momento dell'accertamento, elementi di pericolo immediato"),
+        ("Un cittadino ha segnalato", "Secondo quanto riferito dal segnalante risulta"),
+        ("un cittadino ha segnalato", "secondo quanto riferito dal segnalante risulta"),
+    )
+    for old, new in replacements:
+        result = re.sub(re.escape(old), new, result, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", result).strip()
+
+
+def _strip_terminal_punctuation(text: str) -> str:
+    return re.sub(r"[.;:\s]+$", "", str(text or "").strip())
 
 
 def _clean_model_name(value: str) -> str:
@@ -279,8 +517,8 @@ def _attachment_summary(foto: str, foto_count: str, documenti_count: str) -> str
             f"e n. {documenti_count} documenti alla data di generazione del verbale."
         )
     return (
-        f"Non risulta allegata documentazione fotografica alla data di generazione del verbale; "
-        f"nel fascicolo digitale risultano n. {documenti_count} documenti."
+        "Alla data di generazione del presente atto non risulta acquisita documentazione fotografica nel fascicolo "
+        f"digitale. Nel fascicolo digitale risultano n. {documenti_count} documenti."
     )
 
 

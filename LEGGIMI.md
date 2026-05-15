@@ -1,14 +1,24 @@
-# PassApp Suite Ufficio Servizi
+# PassApp Versione 2 Moderna - Qt/PySide6
 
-## Contenuto cartella
-- `main.py` -> programma principale con menu moduli
-- `pass_invalidi.py` -> modulo Pass Invalidi
-- `segnalazioni.py` -> modulo Segnalazioni Cittadini
-- `ospitalita_stranieri.py` -> modulo Ospitalita Stranieri
-- `data/config.json` -> configurazione centralizzata di percorsi, scadenze, output e UI
-- `INSTALLA.bat` -> installazione dipendenze e collegamento desktop
-- `SETUP_PYTHON_E_INSTALLA.bat` -> verifica Python e avvio installazione completa
-- `Avvia App.bat` -> avvio rapido della suite
+PassApp e ora un'app unica basata su Qt/PySide6. Il codice storico e stato archiviato in `legacy_tkinter/` solo per consultazione e non viene piu usato come applicazione ufficiale.
+
+## Avvio
+- `python main.py` avvia la versione moderna Qt/PySide6.
+- `main_qt.py` resta come alias temporaneo e richiama lo stesso entrypoint.
+- `Avvia App.bat` usa `main.py` e preferisce l'ambiente virtuale `.venv` se presente.
+
+## Moduli disponibili
+- Dashboard operativa
+- Pass Invalidi
+- Segnalazioni Cittadini
+- Sopralluoghi
+- Accertamenti anagrafici
+- Ospitalita Stranieri
+- Report mensile
+- Contatti utili
+- Configurazione
+- Diagnostica
+- Storico modifiche/audit
 
 ## Prima installazione
 1. Copia l'intera cartella su ogni PC, ad esempio sul Desktop o in Documenti.
@@ -18,26 +28,17 @@
 
 ## Utilizzo quotidiano
 1. Avvia `Avvia App.bat` oppure il collegamento creato sul Desktop.
-2. Dal menu principale scegli il modulo operativo.
-3. I percorsi di rete, i giorni di preavviso scadenza e le cartelle PDF si configurano in `data/config.json`.
-4. Nei moduli `Pass Invalidi` e `Ospitalita Stranieri` le nuove righe vengono prima salvate in una copia di lavoro: usa il pulsante `SALVA MODIFICHE` per aggiornare il file Excel originale.
-
-## Configurazione
-Il file `data/config.json` contiene:
-- percorsi di rete dei moduli
-- pattern di ricerca dei file Excel
-- giorni di preavviso per i pass in scadenza
-- cartelle dati, log e output PDF
-- nome suite, titoli e opzioni UI di base
+2. Dal menu laterale scegli il modulo operativo.
+3. I percorsi di rete, le scadenze e le cartelle PDF si configurano dalla pagina Configurazione o in `data/config.json`.
+4. Nei moduli `Pass Invalidi` e `Ospitalita Stranieri` le nuove righe vengono prima salvate in una copia di lavoro: usa `Salva modifiche` per aggiornare il file Excel originale.
 
 ## Note tecniche
-- Il disco di rete configurato deve essere raggiungibile dal PC.
+- La UI ufficiale richiede `PySide6`.
+- La build PyInstaller usa `main.py` e produce l'eseguibile Qt.
+- I servizi condivisi sono in `core/`; le pagine moderne sono in `qt_app/`.
+- I PDF delle segnalazioni e dei sopralluoghi richiedono Microsoft Word Desktop.
+- Il salvataggio modifiche su file `.xls` usa Microsoft Excel Desktop tramite automazione COM.
 - I log applicativi vengono salvati in `data/passapp.log`.
-- I PDF delle segnalazioni vengono proposti nella cartella configurata in `documenti/segnalazioni_pdf`.
-- L'esportazione PDF delle segnalazioni richiede Microsoft Word Desktop installato sul PC.
-- Il salvataggio modifiche su file `.xls` usa Microsoft Excel Desktop (automazione COM).
-- Gli script di avvio/installazione usano automaticamente `python` oppure `py -3`.
-- Nessun dato viene inviato online: tutto resta locale.
 
 ## Problemi comuni
 **"Nessun file trovato"** -> verifica che il percorso di rete configurato in `data/config.json` sia disponibile.

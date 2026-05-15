@@ -59,15 +59,18 @@ class SegnalazionePdfWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, payload: dict[str, str], output_path):
+    def __init__(self, payload: dict[str, str], output_path, include_raw_fields: bool = False):
         super().__init__()
         self.payload = payload
         self.output_path = output_path
+        self.include_raw_fields = include_raw_fields
 
     @Slot()
     def run(self) -> None:
         try:
-            self.finished.emit(render_segnalazione_pdf(self.payload, self.output_path))
+            self.finished.emit(
+                render_segnalazione_pdf(self.payload, self.output_path, include_raw_fields=self.include_raw_fields)
+            )
         except Exception as exc:
             self.failed.emit(str(exc) or "Errore non specificato")
 
@@ -97,7 +100,7 @@ class PassInvalidiLoadWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
-            from pass_invalidi import carica_tutti
+            from core.pass_invalidi_service import carica_tutti
 
             records, files, errors = carica_tutti()
             self.finished.emit(records, files, errors)
@@ -113,7 +116,7 @@ class OspitalitaLoadWorker(QObject):
     def run(self) -> None:
         try:
             import os
-            from ospitalita_stranieri import FOLDER_OSPITALITA, _extract_records, _list_input_files
+            from core.ospitalita_service import FOLDER_OSPITALITA, _extract_records, _list_input_files
 
             records: list[dict] = []
             errors: list[str] = []

@@ -18,7 +18,7 @@ echo [2/3] Creazione EXE Qt con console debug...
   --add-data "assets;assets" ^
   --add-data "templates;templates" ^
   --add-data "data\config.json;data" ^
-  main_qt.py
+  main.py
 if errorlevel 1 goto errore
 
 echo [3/3] Preparazione configurazione esterna...

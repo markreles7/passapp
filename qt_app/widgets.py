@@ -34,7 +34,7 @@ class PlaceholderPage(QWidget):
         card.setObjectName("Card")
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(18, 18, 18, 18)
-        message = QLabel("Modulo non ancora migrato in Qt. Usa la versione Tkinter come fallback stabile.")
+        message = QLabel("Pagina disponibile come area minima nella versione Qt. Le funzioni dedicate verranno completate qui.")
         message.setObjectName("Muted")
         message.setWordWrap(True)
         card_layout.addWidget(message)

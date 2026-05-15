@@ -85,7 +85,7 @@ def _title_for_key(key: str) -> str:
 
 
 def _collect_pass_invalidi() -> DashboardCard:
-    from pass_invalidi import carica_tutti, get_status
+    from core.pass_invalidi_service import carica_tutti, get_status
 
     records, files, errors = carica_tutti()
     status_counts = {"valid": 0, "soon": 0, "expired": 0}
@@ -119,19 +119,15 @@ def _collect_pass_invalidi() -> DashboardCard:
 
 
 def _collect_segnalazioni() -> DashboardCard:
-    from segnalazioni import SEGNALAZIONI_BACKUP_FILE, SEGNALAZIONI_FILE, SegnalazioniFrame
-
-    frame = SegnalazioniFrame.__new__(SegnalazioniFrame)
-    frame.segnalazioni = []
-    frame._next_progressivo = 1
-    frame._load_from_disk()
+    from core.segnalazioni import SEGNALAZIONI_BACKUP_FILE, SEGNALAZIONI_FILE, load_segnalazioni
 
     raw_items, raw_source = _load_raw_segnalazioni(SEGNALAZIONI_FILE, SEGNALAZIONI_BACKUP_FILE)
     priority_summary = summarize_priority_fields(raw_items)
+    segnalazioni, _source = load_segnalazioni(SEGNALAZIONI_FILE, SEGNALAZIONI_BACKUP_FILE)
 
-    total = len(frame.segnalazioni)
-    open_count = sum(1 for item in frame.segnalazioni if item.stato == "in_corso")
-    closed_count = sum(1 for item in frame.segnalazioni if item.stato == "archiviata")
+    total = len(segnalazioni)
+    open_count = sum(1 for item in segnalazioni if item.stato == "in_corso")
+    closed_count = sum(1 for item in segnalazioni if item.stato == "archiviata")
     status = OK if raw_source else WARNING
     detail = raw_source.name if raw_source else UNAVAILABLE
 
@@ -152,7 +148,7 @@ def _collect_segnalazioni() -> DashboardCard:
 
 
 def _collect_ospitalita() -> DashboardCard:
-    from ospitalita_stranieri import FOLDER_OSPITALITA, _extract_records, _list_input_files
+    from core.ospitalita_service import FOLDER_OSPITALITA, _extract_records, _list_input_files
 
     if not os.path.isdir(FOLDER_OSPITALITA):
         return DashboardCard(

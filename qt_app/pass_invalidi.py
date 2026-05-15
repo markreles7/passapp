@@ -51,7 +51,15 @@ from core.pass_invalidi_excel import (
     write_pending_with_excel_com,
 )
 from core.workcopies import create_working_copy
-from pass_invalidi import AUTH_CITY_DEFAULT, AUTH_DOCS_DIR, AUTH_TEMPLATE_PATH, CARTELLA_RETE, WORK_COPY_DIR, get_status, logger
+from core.pass_invalidi_service import (
+    AUTH_CITY_DEFAULT,
+    AUTH_DOCS_DIR,
+    AUTH_TEMPLATE_PATH,
+    CARTELLA_RETE,
+    WORK_COPY_DIR,
+    get_status,
+    logger,
+)
 from qt_app.widgets import page_header
 from qt_app.workers import PassInvalidiLoadWorker
 

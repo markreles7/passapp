@@ -52,6 +52,8 @@ class MainWindow(QMainWindow):
         self._add_page("report", ReportPage(config))
         self._add_page("contatti", ContactsPage(config))
         self._add_page("configurazione", ConfigurationPage(config))
+        self._add_placeholder("diagnostica", "Diagnostica", "Pagina Qt minima per la verifica della configurazione.")
+        self._add_placeholder("audit", "Storico modifiche", "Pagina Qt minima per consultazione audit.")
 
         self.sidebar.selected.connect(self.show_page)
         self.show_page("dashboard")

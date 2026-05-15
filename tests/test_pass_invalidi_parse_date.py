@@ -1,7 +1,7 @@
 import datetime
 import unittest
 
-from pass_invalidi import parse_date
+from core.dates import parse_date
 
 
 class TestParseDate(unittest.TestCase):

@@ -14,6 +14,8 @@ NAV_ITEMS = (
     ("report", "RM", "Report mensile"),
     ("contatti", "CT", "Contatti utili"),
     ("configurazione", "CF", "Configurazione"),
+    ("diagnostica", "VC", "Diagnostica"),
+    ("audit", "AU", "Storico modifiche"),
 )
 
 

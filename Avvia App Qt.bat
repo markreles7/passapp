@@ -2,19 +2,19 @@
 cd /d "%~dp0"
 
 if exist ".venv\Scripts\python.exe" (
-    ".venv\Scripts\python.exe" main_qt.py
+    ".venv\Scripts\python.exe" main.py
     exit /b %errorlevel%
 )
 
 python -c "import PySide6" >nul 2>&1
 if %errorlevel% equ 0 (
-    python main_qt.py
+    python main.py
     exit /b %errorlevel%
 )
 
 py -3 -c "import PySide6" >nul 2>&1
 if %errorlevel% equ 0 (
-    py -3 main_qt.py
+    py -3 main.py
     exit /b %errorlevel%
 )
 

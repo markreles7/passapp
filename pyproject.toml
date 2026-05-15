@@ -1,0 +1,7 @@
+[tool.ruff]
+exclude = [
+    ".venv",
+    "build",
+    "dist",
+    "legacy_tkinter",
+]

@@ -6,7 +6,7 @@ set "PYTHON=.venv\Scripts\python.exe"
 if not exist "%PYTHON%" set "PYTHON=python"
 
 echo [1/4] Verifica dipendenze e test...
-"%PYTHON%" -m py_compile main_qt.py app_config.py qt_app\app.py qt_app\main_window.py
+"%PYTHON%" -m py_compile main.py main_qt.py app_config.py qt_app\app.py qt_app\main_window.py
 if errorlevel 1 goto errore
 
 "%PYTHON%" -m unittest discover -s tests
@@ -26,7 +26,7 @@ echo [3/4] Creazione EXE Qt...
   --add-data "assets;assets" ^
   --add-data "templates;templates" ^
   --add-data "data\config.json;data" ^
-  main_qt.py
+  main.py
 if errorlevel 1 goto errore
 
 echo [4/4] Preparazione cartelle esterne...

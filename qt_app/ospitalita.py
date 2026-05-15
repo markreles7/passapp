@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 from pathlib import Path
 
@@ -33,14 +32,13 @@ from core.ospitalita_excel import (
     compact_values,
     extract_year_from_text,
     find_record_by_progressivo,
-    record_progressivo_int,
     reserve_progressivo_slot,
     split_display_name_address,
     upsert_pending_record,
     write_pending_with_excel_com,
 )
 from core.workcopies import create_working_copy
-from ospitalita_stranieri import FOLDER_OSPITALITA, WORK_COPY_DIR, logger
+from core.ospitalita_service import FOLDER_OSPITALITA, WORK_COPY_DIR, logger
 from qt_app.widgets import page_header
 from qt_app.workers import OspitalitaLoadWorker
 

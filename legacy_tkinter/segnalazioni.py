@@ -1653,9 +1653,10 @@ class SegnalazioniFrame(tk.Frame):
 
         messagebox.showinfo("PDF creato", f"Segnalazione esportata in:\n{out_path}")
 
-    def _render_pdf_report(self, payload: dict[str, str], output_pdf: Path):
+    def _render_pdf_report(self, payload: dict[str, str], output_pdf: Path, include_raw_fields: bool = False):
         output_pdf.parent.mkdir(parents=True, exist_ok=True)
         payload = dict(payload)
+        payload["include_raw_fields"] = bool(include_raw_fields)
         payload["testo_segnalazione_generato"], payload["testo_generato_da"] = prepare_segnalazione_pdf(payload)
         ps_script = r"""
 param(
@@ -1808,6 +1809,10 @@ try {
     $agente = Compact-Text -Text $payload.agente -MaxLength 60
     $dataAccertamento = Compact-Text -Text $payload.data_accertamento -MaxLength 30
     $verifica = Compact-Text -Text $payload.verifica -MaxLength 340
+    $includeRawFields = $false
+    if ($null -ne $payload.include_raw_fields) {
+        $includeRawFields = [System.Convert]::ToBoolean($payload.include_raw_fields)
+    }
 
     $footerRange = $doc.Sections.Item(1).Footers.Item(1).Range
     $footerRange.Text = "Documento generato automaticamente da PassApp. In caso di compilazione cartacea, riportare l'esito nel gestionale."
@@ -1831,12 +1836,15 @@ try {
     Add-Paragraph -Selection $sel -Text "RELAZIONE DESCRITTIVA DELLA SEGNALAZIONE" -Size 10 -Bold $true -Alignment 1 -SpaceAfter 3
     Add-Paragraph -Selection $sel -Text $testoSegnalazione -Size 10 -SpaceAfter 7
 
-    Add-Paragraph -Selection $sel -Text "CONTENUTO ORIGINALE REGISTRATO" -Size 9 -Bold $true -SpaceAfter 2
-    Add-Paragraph -Selection $sel -Text $descrizione -Size 9 -SpaceAfter 5
+    if ($includeRawFields) {
+        Add-Paragraph -Selection $sel -Text "ALLEGATO INTERNO - DATI ORIGINALI REGISTRATI" -Size 9 -Bold $true -SpaceAfter 3
+        Add-Paragraph -Selection $sel -Text "CONTENUTO ORIGINALE REGISTRATO" -Size 9 -Bold $true -SpaceAfter 2
+        Add-Paragraph -Selection $sel -Text $descrizione -Size 9 -SpaceAfter 5
 
-    Add-Paragraph -Selection $sel -Text "ATTIVITA' DI ACCERTAMENTO" -Size 9 -Bold $true -SpaceAfter 2
-    Add-Paragraph -Selection $sel -Text ("Agente accertatore: " + $agente + "    Data accertamento: " + $dataAccertamento) -Size 9 -SpaceAfter 2
-    Add-Paragraph -Selection $sel -Text ("Riscontro registrato in app: " + $verifica) -Size 9 -SpaceAfter 5
+        Add-Paragraph -Selection $sel -Text "ATTIVITA' DI ACCERTAMENTO" -Size 9 -Bold $true -SpaceAfter 2
+        Add-Paragraph -Selection $sel -Text ("Agente accertatore: " + $agente + "    Data accertamento: " + $dataAccertamento) -Size 9 -SpaceAfter 2
+        Add-Paragraph -Selection $sel -Text ("Riscontro registrato in app: " + $verifica) -Size 9 -SpaceAfter 5
+    }
 
     Add-Paragraph -Selection $sel -Text "Firma operatore ricevente: ____________________" -Size 9 -Alignment 2 -SpaceAfter 2
     Add-Paragraph -Selection $sel -Text "Firma agente accertatore: ____________________" -Size 9 -Alignment 2 -SpaceAfter 0

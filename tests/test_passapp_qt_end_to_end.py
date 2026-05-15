@@ -1,10 +1,14 @@
 import unittest
 from unittest.mock import patch
 
+import pytest
+
+pytest.importorskip("PySide6")
+
 from core.fascicoli import FascicoloAttachment
+from core.segnalazioni import Segnalazione
 from core.sopralluoghi import Sopralluogo
 from qt_app.segnalazioni import SegnalazioniPage
-from segnalazioni import Segnalazione
 
 
 class TestPassAppQtEndToEnd(unittest.TestCase):

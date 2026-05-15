@@ -1,17 +1,17 @@
 @echo off
 setlocal EnableExtensions
-title PassApp Suite Ufficio Servizi - Installazione Qt
+title PassApp Suite Ufficio Servizi - Installazione
 color 1F
 cls
 
 echo.
 echo  ============================================
 echo   PASSAPP SUITE UFFICIO SERVIZI
-echo   Procedura guidata installazione Qt
+echo   Procedura guidata installazione
 echo  ============================================
 echo.
 echo  Questa procedura installa tutti i requisiti
-echo  per usare la nuova versione Qt dell'app.
+echo  per usare PassApp Versione 2 Moderna.
 echo.
 echo  Nota:
 echo  - I percorsi delle cartelle si impostano
@@ -120,13 +120,13 @@ if errorlevel 1 (
 echo.
 
 set "DESKTOP=%USERPROFILE%\Desktop"
-set "SHORTCUT=%DESKTOP%\PassApp Suite Ufficio Servizi Qt.bat"
+set "SHORTCUT=%DESKTOP%\PassApp Suite Ufficio Servizi.bat"
 
 echo  Creazione collegamento sul Desktop...
 (
     echo @echo off
     echo cd /d "%SCRIPT_DIR%"
-    echo call "%SCRIPT_DIR%Avvia App Qt.bat"
+    echo call "%SCRIPT_DIR%Avvia App.bat"
 ) > "%SHORTCUT%"
 if errorlevel 1 (
     echo  [AVVISO] Non e stato possibile creare il collegamento sul Desktop.
@@ -140,7 +140,7 @@ echo  ============================================
 echo   Installazione completata.
 echo.
 echo   Avvia l'app dal collegamento sul Desktop
-echo   oppure da Avvia App Qt.bat.
+echo   oppure da Avvia App.bat.
 echo.
 echo   I percorsi delle cartelle si impostano da:
 echo   Configurazione ^> Salva configurazione

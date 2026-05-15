@@ -1,15 +1,11 @@
-import sys
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow
+import pytest
 
-app = QApplication(sys.argv)
+PySide6 = pytest.importorskip("PySide6")
 
-window = QMainWindow()
-window.setWindowTitle("PassApp Qt Test")
-window.resize(1000, 700)
 
-label = QLabel("PySide6 funziona correttamente")
-label.setStyleSheet("font-size: 24px; padding: 40px;")
-window.setCentralWidget(label)
+def test_pyside6_imports():
+    from PySide6.QtWidgets import QApplication, QLabel, QMainWindow
 
-window.show()
-sys.exit(app.exec())
+    assert QApplication is not None
+    assert QLabel is not None
+    assert QMainWindow is not None
