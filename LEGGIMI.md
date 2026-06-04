@@ -5,7 +5,7 @@ PassApp e ora un'app unica basata su Qt/PySide6. Il codice storico e stato archi
 ## Avvio
 - `python main.py` avvia la versione moderna Qt/PySide6.
 - `main_qt.py` resta come alias temporaneo e richiama lo stesso entrypoint.
-- `Avvia App.bat` usa `main.py` e preferisce l'ambiente virtuale `.venv` se presente.
+- `AVVIA_PASSAPP.bat` avvia l'EXE in `dist\PassAppQt`; se l'EXE non esiste avvia la preparazione guidata.
 
 ## Moduli disponibili
 - Dashboard operativa
@@ -22,15 +22,21 @@ PassApp e ora un'app unica basata su Qt/PySide6. Il codice storico e stato archi
 
 ## Prima installazione
 1. Copia l'intera cartella su ogni PC, ad esempio sul Desktop o in Documenti.
-2. Esegui `SETUP_PYTHON_E_INSTALLA.bat` se devi verificare o installare Python.
-3. In alternativa, se Python e gia presente, esegui direttamente `INSTALLA.bat`.
-4. Segui le istruzioni a schermo.
+2. Esegui `PREPARA_PC_E_CREA_EXE.bat`.
+3. Lo script verifica Python, Git, requirements, aggiornamenti GitHub, test e crea l'EXE.
+4. Segui le istruzioni a schermo e poi usa `AVVIA_PASSAPP.bat`.
 
 ## Utilizzo quotidiano
-1. Avvia `Avvia App.bat` oppure il collegamento creato sul Desktop.
+1. Avvia `AVVIA_PASSAPP.bat` oppure il collegamento creato sul Desktop.
 2. Dal menu laterale scegli il modulo operativo.
 3. I percorsi di rete, le scadenze e le cartelle PDF si configurano dalla pagina Configurazione o in `data/config.json`.
 4. Nei moduli `Pass Invalidi` e `Ospitalita Stranieri` le nuove righe vengono prima salvate in una copia di lavoro: usa `Salva modifiche` per aggiornare il file Excel originale.
+
+## Aggiornamenti
+- All'avvio l'app controlla se su GitHub e disponibile una nuova versione.
+- Se l'utente accetta, viene lanciato `AGGIORNA_RICREA_EXE_E_RIAVVIA.bat`.
+- Lo script chiude l'app, aggiorna la repository, aggiorna i requirements, ricrea l'EXE e riavvia PassApp.
+- Non copiare `data/users.json` tra PC diversi: l'admin viene legato al PC dove il file utenti viene creato.
 
 ## Note tecniche
 - La UI ufficiale richiede `PySide6`.

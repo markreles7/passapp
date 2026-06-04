@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
         detail = (
             f"{info.message}\n\n"
             f"Sorgente: {info.upstream}\n"
-            "Se accetti, l'app si chiude, applica l'aggiornamento e si riavvia."
+            "Se accetti, l'app si chiude, aggiorna i file, ricrea l'EXE e si riavvia."
         )
         choice = QMessageBox.question(
             self,

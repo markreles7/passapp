@@ -8,8 +8,9 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 
 
-REPO_DIR = Path(__file__).resolve().parents[1]
-UPDATE_SCRIPT = REPO_DIR / "AGGIORNA_E_RIAVVIA.bat"
+UPDATE_SCRIPT_NAME = "AGGIORNA_RICREA_EXE_E_RIAVVIA.bat"
+REPO_DIR = None
+UPDATE_SCRIPT = None
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,13 @@ class UpdateCheckWorker(QObject):
 
 
 def check_for_updates() -> UpdateInfo:
-    if not (REPO_DIR / ".git").exists():
+    repo_dir = _repo_dir()
+    update_script = _update_script()
+
+    if not (repo_dir / ".git").exists():
         return UpdateInfo(False, False, "Cartella Git non trovata.")
 
-    if not UPDATE_SCRIPT.exists():
+    if not update_script.exists():
         return UpdateInfo(False, False, "Script di aggiornamento non trovato.")
 
     upstream = _get_upstream()
@@ -87,12 +91,15 @@ def check_for_updates() -> UpdateInfo:
 
 
 def start_update_and_restart() -> None:
-    if not UPDATE_SCRIPT.exists():
-        raise OSError(f"Script di aggiornamento non trovato: {UPDATE_SCRIPT}")
+    update_script = _update_script()
+    repo_dir = _repo_dir()
+
+    if not update_script.exists():
+        raise OSError(f"Script di aggiornamento non trovato: {update_script}")
 
     subprocess.Popen(
-        ["cmd.exe", "/c", "start", "", str(UPDATE_SCRIPT)],
-        cwd=REPO_DIR,
+        ["cmd.exe", "/c", "start", "", str(update_script)],
+        cwd=repo_dir,
         close_fds=True,
         creationflags=_creation_flags(),
     )
@@ -118,7 +125,7 @@ def _has_tracked_local_changes() -> bool:
 def _run_git(args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
-        cwd=REPO_DIR,
+        cwd=_repo_dir(),
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -135,3 +142,30 @@ def _creation_flags() -> int:
 
 def _clean_error(value: str) -> str:
     return " ".join(value.split())
+
+
+def _repo_dir() -> Path:
+    global REPO_DIR
+    if REPO_DIR is None:
+        REPO_DIR = _find_repo_dir()
+    return REPO_DIR
+
+
+def _update_script() -> Path:
+    global UPDATE_SCRIPT
+    if UPDATE_SCRIPT is None:
+        UPDATE_SCRIPT = _repo_dir() / UPDATE_SCRIPT_NAME
+    return UPDATE_SCRIPT
+
+
+def _find_repo_dir() -> Path:
+    candidates: list[Path] = []
+    if getattr(sys, "frozen", False):
+        candidates.extend(Path(sys.executable).resolve().parents)
+    candidates.extend(Path(__file__).resolve().parents)
+
+    for candidate in candidates:
+        if (candidate / ".git").exists() and (candidate / UPDATE_SCRIPT_NAME).exists():
+            return candidate
+
+    return Path(__file__).resolve().parents[1]
