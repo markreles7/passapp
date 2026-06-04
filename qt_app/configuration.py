@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHeaderView,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from app_config import CONFIG_PATH, load_config, save_config
+from core.auth import ADMIN_USERNAME, ROLE_ADMIN, AuthError, AuthenticatedUser, create_user, list_users
 from core.diagnostics import ERROR, OK, WARNING, run_diagnostics
 from qt_app.widgets import page_header
 
@@ -44,9 +46,15 @@ CONFIG_FIELDS = (
 
 
 class ConfigurationPage(QWidget):
-    def __init__(self, config: dict, parent: QWidget | None = None):
+    def __init__(
+        self,
+        config: dict,
+        current_user: AuthenticatedUser | None = None,
+        parent: QWidget | None = None,
+    ):
         super().__init__(parent)
         self.config = config
+        self.current_user = current_user or AuthenticatedUser(ADMIN_USERNAME, ROLE_ADMIN)
         self.fields: dict[str, QLineEdit] = {}
 
         layout = QVBoxLayout(self)
@@ -85,6 +93,7 @@ class ConfigurationPage(QWidget):
         self.status = QLabel("")
         self.status.setObjectName("Muted")
         save_button = QPushButton("Salva configurazione")
+        save_button.setEnabled(self.current_user.is_admin)
         save_button.clicked.connect(self.save)
         form_card_layout.addWidget(save_button, alignment=Qt.AlignRight)
         form_card_layout.addWidget(self.status)
@@ -97,6 +106,7 @@ class ConfigurationPage(QWidget):
         diagnostics_layout.setSpacing(12)
 
         diagnostics_button = QPushButton("Esegui verifica")
+        diagnostics_button.setEnabled(self.current_user.is_admin)
         diagnostics_button.clicked.connect(self.refresh_diagnostics)
         diagnostics_layout.addWidget(diagnostics_button, alignment=Qt.AlignRight)
 
@@ -110,6 +120,9 @@ class ConfigurationPage(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         diagnostics_layout.addWidget(self.table)
         layout.addWidget(diagnostics_card, 2)
+
+        if self.current_user.is_admin:
+            self._add_user_management_section(layout)
 
         config_path = QLabel(f"File configurazione: {CONFIG_PATH}")
         config_path.setObjectName("Muted")
@@ -151,6 +164,10 @@ class ConfigurationPage(QWidget):
             field.setText(selected)
 
     def save(self) -> None:
+        if not self.current_user.is_admin:
+            QMessageBox.warning(self, "Accesso riservato", "Solo l'amministratore puo modificare la configurazione.")
+            return
+
         raw_config = self._load_raw_config()
         raw_config.setdefault("paths", {})
 
@@ -175,6 +192,10 @@ class ConfigurationPage(QWidget):
         QMessageBox.information(self, "Configurazione salvata", "I percorsi sono stati salvati correttamente.")
 
     def refresh_diagnostics(self) -> None:
+        if not self.current_user.is_admin:
+            QMessageBox.warning(self, "Accesso riservato", "Solo l'amministratore puo verificare la configurazione.")
+            return
+
         self.table.setRowCount(0)
         for item in run_diagnostics():
             row = self.table.rowCount()
@@ -202,6 +223,69 @@ class ConfigurationPage(QWidget):
         if isinstance(value, list):
             return "; ".join(str(item) for item in value)
         return str(value)
+
+    def _add_user_management_section(self, layout: QVBoxLayout) -> None:
+        users_card = QFrame()
+        users_card.setObjectName("Card")
+        users_layout = QVBoxLayout(users_card)
+        users_layout.setContentsMargins(18, 18, 18, 18)
+        users_layout.setSpacing(12)
+
+        title = QLabel("Profili utente")
+        title.setStyleSheet("font-size: 13pt; font-weight: 700;")
+        users_layout.addWidget(title)
+
+        form_row = QHBoxLayout()
+        self.new_username_field = QLineEdit()
+        self.new_username_field.setPlaceholderText("Nuovo username")
+        self.new_password_field = QLineEdit()
+        self.new_password_field.setPlaceholderText("Password")
+        self.new_password_field.setEchoMode(QLineEdit.Password)
+        create_button = QPushButton("Crea profilo")
+        create_button.clicked.connect(self.create_profile)
+        form_row.addWidget(self.new_username_field, 1)
+        form_row.addWidget(self.new_password_field, 1)
+        form_row.addWidget(create_button)
+        users_layout.addLayout(form_row)
+
+        self.users_table = QTableWidget(0, 3)
+        self.users_table.setHorizontalHeaderLabels(("Username", "Ruolo", "Creato il"))
+        self.users_table.verticalHeader().setVisible(False)
+        self.users_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.users_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.users_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.users_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.users_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        users_layout.addWidget(self.users_table)
+        layout.addWidget(users_card, 2)
+        self.refresh_users()
+
+    def create_profile(self) -> None:
+        try:
+            create_user(
+                self.new_username_field.text(),
+                self.new_password_field.text(),
+                created_by=self.current_user,
+            )
+        except AuthError as exc:
+            QMessageBox.warning(self, "Profilo non creato", str(exc))
+            return
+
+        self.new_username_field.clear()
+        self.new_password_field.clear()
+        self.refresh_users()
+        QMessageBox.information(self, "Profilo creato", "Il nuovo profilo utente e stato creato correttamente.")
+
+    def refresh_users(self) -> None:
+        self.users_table.setRowCount(0)
+        for user in list_users():
+            row = self.users_table.rowCount()
+            self.users_table.insertRow(row)
+            role = "Amministratore" if user["role"] == ROLE_ADMIN else "Utente"
+            created_at = user.get("created_at", "")
+            created_at = created_at[:19].replace("T", " ") if created_at else ""
+            for column, value in enumerate((user["username"], role, created_at)):
+                self.users_table.setItem(row, column, QTableWidgetItem(value))
 
     @staticmethod
     def _status_color(status: str):

@@ -19,6 +19,7 @@ data/contatti.json
 data/sopralluoghi.json
 data/fascicoli.json
 data/config.json
+data/users.json
 data/workcopies/
 data/backups/
 documenti/segnalazioni_pdf/*.pdf

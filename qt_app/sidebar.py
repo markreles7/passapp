@@ -3,6 +3,8 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from core.auth import AuthenticatedUser
+
 
 NAV_ITEMS = (
     ("dashboard", "SU", "Dashboard"),
@@ -17,13 +19,15 @@ NAV_ITEMS = (
     ("diagnostica", "VC", "Diagnostica"),
     ("audit", "AU", "Storico modifiche"),
 )
+ADMIN_ONLY_ITEMS = {"configurazione", "diagnostica"}
 
 
 class Sidebar(QFrame):
     selected = Signal(str)
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, current_user: AuthenticatedUser, parent: QWidget | None = None):
         super().__init__(parent)
+        self.current_user = current_user
         self.setObjectName("Sidebar")
         self.setFixedWidth(252)
         self.buttons: dict[str, QPushButton] = {}
@@ -42,6 +46,8 @@ class Sidebar(QFrame):
         layout.addSpacing(12)
 
         for key, icon, label in NAV_ITEMS:
+            if key in ADMIN_ONLY_ITEMS and not current_user.is_admin:
+                continue
             button = QPushButton(f"{icon}   {label}")
             button.setObjectName("NavButton")
             button.setProperty("active", "false")
@@ -51,7 +57,8 @@ class Sidebar(QFrame):
 
         layout.addStretch(1)
 
-        footer = QLabel("Ufficio Servizi Comunali")
+        role = "Amministratore" if current_user.is_admin else "Utente"
+        footer = QLabel(f"{current_user.username}\n{role}")
         footer.setObjectName("SidebarSubtitle")
         layout.addWidget(footer)
 

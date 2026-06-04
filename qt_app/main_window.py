@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QThread, QTimer
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QMessageBox, QStackedWidget, QWidget
 
+from core.auth import ADMIN_USERNAME, ROLE_ADMIN, AuthenticatedUser
 from qt_app.accertamenti_anagrafici import AccertamentiAnagraficiPage
 from qt_app.configuration import ConfigurationPage
 from qt_app.contacts import ContactsPage
@@ -18,9 +19,10 @@ from qt_app.widgets import PlaceholderPage
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, current_user: AuthenticatedUser | None = None):
         super().__init__()
         self.config = config
+        self.current_user = current_user or AuthenticatedUser(ADMIN_USERNAME, ROLE_ADMIN)
         self._update_thread: QThread | None = None
         self._update_worker: UpdateCheckWorker | None = None
         window = config["ui"]["window"]
@@ -33,7 +35,7 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        self.sidebar = Sidebar()
+        self.sidebar = Sidebar(self.current_user)
         self.stack = QStackedWidget()
         root_layout.addWidget(self.sidebar)
         root_layout.addWidget(self.stack, 1)
@@ -51,8 +53,9 @@ class MainWindow(QMainWindow):
         self._add_page("ospitalita", OspitalitaPage(config))
         self._add_page("report", ReportPage(config))
         self._add_page("contatti", ContactsPage(config))
-        self._add_page("configurazione", ConfigurationPage(config))
-        self._add_placeholder("diagnostica", "Diagnostica", "Pagina Qt minima per la verifica della configurazione.")
+        if self.current_user.is_admin:
+            self._add_page("configurazione", ConfigurationPage(config, current_user=self.current_user))
+            self._add_placeholder("diagnostica", "Diagnostica", "Pagina Qt minima per la verifica della configurazione.")
         self._add_placeholder("audit", "Storico modifiche", "Pagina Qt minima per consultazione audit.")
 
         self.sidebar.selected.connect(self.show_page)
@@ -67,6 +70,13 @@ class MainWindow(QMainWindow):
         self._add_page(key, PlaceholderPage(title, subtitle))
 
     def show_page(self, key: str) -> None:
+        if key in {"configurazione", "diagnostica"} and not self.current_user.is_admin:
+            QMessageBox.warning(
+                self,
+                "Accesso riservato",
+                "Solo l'amministratore puo aprire o verificare la configurazione.",
+            )
+            return
         page = self.pages.get(key)
         if page is None:
             return
