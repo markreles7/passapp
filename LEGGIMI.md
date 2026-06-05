@@ -38,6 +38,11 @@ PassApp e ora un'app unica basata su Qt/PySide6. Il codice storico e stato archi
 - Lo script chiude l'app, aggiorna la repository, aggiorna i requirements, ricrea l'EXE e riavvia PassApp.
 - Non copiare `data/users.json` tra PC diversi: l'admin viene legato al PC dove il file utenti viene creato.
 
+## Autenticazione
+- L'autenticazione e attualmente disattivata.
+- Il codice e stato mantenuto in `core/auth.py` e `qt_app/login.py` per poterla riattivare rapidamente piu avanti.
+- Con autenticazione disattivata, l'app si apre direttamente e la sezione Configurazione resta accessibile.
+
 ## Note tecniche
 - La UI ufficiale richiede `PySide6`.
 - La build PyInstaller usa `main.py` e produce l'eseguibile Qt.

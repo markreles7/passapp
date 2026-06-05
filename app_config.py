@@ -93,6 +93,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "gemini_enabled_for_sopralluogo": True,
         "gemini_timeout_seconds": 45,
     },
+    "auth": {
+        "enabled": False,
+    },
     "ui": {
         "app_name": "PassApp Suite Ufficio Servizi",
         "main_title": "Suite Ufficio Servizi - Polizia Locale",

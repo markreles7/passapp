@@ -50,11 +50,15 @@ class ConfigurationPage(QWidget):
         self,
         config: dict,
         current_user: AuthenticatedUser | None = None,
+        authentication_enabled: bool = False,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
         self.config = config
-        self.current_user = current_user or AuthenticatedUser(ADMIN_USERNAME, ROLE_ADMIN)
+        self.authentication_enabled = authentication_enabled
+        self.current_user = current_user or (
+            AuthenticatedUser(ADMIN_USERNAME, ROLE_ADMIN) if authentication_enabled else None
+        )
         self.fields: dict[str, QLineEdit] = {}
 
         layout = QVBoxLayout(self)
@@ -93,7 +97,7 @@ class ConfigurationPage(QWidget):
         self.status = QLabel("")
         self.status.setObjectName("Muted")
         save_button = QPushButton("Salva configurazione")
-        save_button.setEnabled(self.current_user.is_admin)
+        save_button.setEnabled(self._can_manage_configuration())
         save_button.clicked.connect(self.save)
         form_card_layout.addWidget(save_button, alignment=Qt.AlignRight)
         form_card_layout.addWidget(self.status)
@@ -106,7 +110,7 @@ class ConfigurationPage(QWidget):
         diagnostics_layout.setSpacing(12)
 
         diagnostics_button = QPushButton("Esegui verifica")
-        diagnostics_button.setEnabled(self.current_user.is_admin)
+        diagnostics_button.setEnabled(self._can_manage_configuration())
         diagnostics_button.clicked.connect(self.refresh_diagnostics)
         diagnostics_layout.addWidget(diagnostics_button, alignment=Qt.AlignRight)
 
@@ -121,7 +125,7 @@ class ConfigurationPage(QWidget):
         diagnostics_layout.addWidget(self.table)
         layout.addWidget(diagnostics_card, 2)
 
-        if self.current_user.is_admin:
+        if self.authentication_enabled and self._can_manage_configuration():
             self._add_user_management_section(layout)
 
         config_path = QLabel(f"File configurazione: {CONFIG_PATH}")
@@ -164,7 +168,7 @@ class ConfigurationPage(QWidget):
             field.setText(selected)
 
     def save(self) -> None:
-        if not self.current_user.is_admin:
+        if not self._can_manage_configuration():
             QMessageBox.warning(self, "Accesso riservato", "Solo l'amministratore puo modificare la configurazione.")
             return
 
@@ -192,7 +196,7 @@ class ConfigurationPage(QWidget):
         QMessageBox.information(self, "Configurazione salvata", "I percorsi sono stati salvati correttamente.")
 
     def refresh_diagnostics(self) -> None:
-        if not self.current_user.is_admin:
+        if not self._can_manage_configuration():
             QMessageBox.warning(self, "Accesso riservato", "Solo l'amministratore puo verificare la configurazione.")
             return
 
@@ -223,6 +227,9 @@ class ConfigurationPage(QWidget):
         if isinstance(value, list):
             return "; ".join(str(item) for item in value)
         return str(value)
+
+    def _can_manage_configuration(self) -> bool:
+        return not self.authentication_enabled or bool(self.current_user and self.current_user.is_admin)
 
     def _add_user_management_section(self, layout: QVBoxLayout) -> None:
         users_card = QFrame()

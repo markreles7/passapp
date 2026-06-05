@@ -17,10 +17,18 @@ def main() -> int:
     app.setOrganizationName("Polizia Locale")
     app.setStyleSheet(build_app_stylesheet(config))
 
-    login = LoginDialog()
-    if login.exec() != LoginDialog.Accepted or login.user is None:
-        return 0
+    if _authentication_enabled(config):
+        login = LoginDialog()
+        if login.exec() != LoginDialog.Accepted or login.user is None:
+            return 0
+        window = MainWindow(config, current_user=login.user, authentication_enabled=True)
+    else:
+        window = MainWindow(config, authentication_enabled=False)
 
-    window = MainWindow(config, current_user=login.user)
     window.show()
     return app.exec()
+
+
+def _authentication_enabled(config: dict) -> bool:
+    auth_config = config.get("auth", {})
+    return bool(auth_config.get("enabled", False)) if isinstance(auth_config, dict) else False

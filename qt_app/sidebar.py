@@ -25,9 +25,15 @@ ADMIN_ONLY_ITEMS = {"configurazione", "diagnostica"}
 class Sidebar(QFrame):
     selected = Signal(str)
 
-    def __init__(self, current_user: AuthenticatedUser, parent: QWidget | None = None):
+    def __init__(
+        self,
+        current_user: AuthenticatedUser | None = None,
+        authentication_enabled: bool = False,
+        parent: QWidget | None = None,
+    ):
         super().__init__(parent)
         self.current_user = current_user
+        self.authentication_enabled = authentication_enabled
         self.setObjectName("Sidebar")
         self.setFixedWidth(252)
         self.buttons: dict[str, QPushButton] = {}
@@ -46,7 +52,7 @@ class Sidebar(QFrame):
         layout.addSpacing(12)
 
         for key, icon, label in NAV_ITEMS:
-            if key in ADMIN_ONLY_ITEMS and not current_user.is_admin:
+            if key in ADMIN_ONLY_ITEMS and authentication_enabled and not self._current_user_is_admin():
                 continue
             button = QPushButton(f"{icon}   {label}")
             button.setObjectName("NavButton")
@@ -57,10 +63,17 @@ class Sidebar(QFrame):
 
         layout.addStretch(1)
 
-        role = "Amministratore" if current_user.is_admin else "Utente"
-        footer = QLabel(f"{current_user.username}\n{role}")
+        if authentication_enabled and current_user is not None:
+            role = "Amministratore" if current_user.is_admin else "Utente"
+            footer_text = f"{current_user.username}\n{role}"
+        else:
+            footer_text = "Ufficio Servizi Comunali"
+        footer = QLabel(footer_text)
         footer.setObjectName("SidebarSubtitle")
         layout.addWidget(footer)
+
+    def _current_user_is_admin(self) -> bool:
+        return bool(self.current_user and self.current_user.is_admin)
 
     def set_active(self, key: str) -> None:
         for item_key, button in self.buttons.items():

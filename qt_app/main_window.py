@@ -19,10 +19,18 @@ from qt_app.widgets import PlaceholderPage
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, config: dict, current_user: AuthenticatedUser | None = None):
+    def __init__(
+        self,
+        config: dict,
+        current_user: AuthenticatedUser | None = None,
+        authentication_enabled: bool = False,
+    ):
         super().__init__()
         self.config = config
-        self.current_user = current_user or AuthenticatedUser(ADMIN_USERNAME, ROLE_ADMIN)
+        self.authentication_enabled = authentication_enabled
+        self.current_user = current_user or (
+            AuthenticatedUser(ADMIN_USERNAME, ROLE_ADMIN) if authentication_enabled else None
+        )
         self._update_thread: QThread | None = None
         self._update_worker: UpdateCheckWorker | None = None
         window = config["ui"]["window"]
@@ -35,7 +43,7 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        self.sidebar = Sidebar(self.current_user)
+        self.sidebar = Sidebar(self.current_user, authentication_enabled=self.authentication_enabled)
         self.stack = QStackedWidget()
         root_layout.addWidget(self.sidebar)
         root_layout.addWidget(self.stack, 1)
@@ -53,8 +61,15 @@ class MainWindow(QMainWindow):
         self._add_page("ospitalita", OspitalitaPage(config))
         self._add_page("report", ReportPage(config))
         self._add_page("contatti", ContactsPage(config))
-        if self.current_user.is_admin:
-            self._add_page("configurazione", ConfigurationPage(config, current_user=self.current_user))
+        if self._can_access_admin_pages():
+            self._add_page(
+                "configurazione",
+                ConfigurationPage(
+                    config,
+                    current_user=self.current_user,
+                    authentication_enabled=self.authentication_enabled,
+                ),
+            )
             self._add_placeholder("diagnostica", "Diagnostica", "Pagina Qt minima per la verifica della configurazione.")
         self._add_placeholder("audit", "Storico modifiche", "Pagina Qt minima per consultazione audit.")
 
@@ -70,7 +85,7 @@ class MainWindow(QMainWindow):
         self._add_page(key, PlaceholderPage(title, subtitle))
 
     def show_page(self, key: str) -> None:
-        if key in {"configurazione", "diagnostica"} and not self.current_user.is_admin:
+        if key in {"configurazione", "diagnostica"} and not self._can_access_admin_pages():
             QMessageBox.warning(
                 self,
                 "Accesso riservato",
@@ -82,6 +97,9 @@ class MainWindow(QMainWindow):
             return
         self.stack.setCurrentWidget(page)
         self.sidebar.set_active(key)
+
+    def _can_access_admin_pages(self) -> bool:
+        return not self.authentication_enabled or bool(self.current_user and self.current_user.is_admin)
 
     def check_for_updates(self) -> None:
         if self._update_thread is not None:
