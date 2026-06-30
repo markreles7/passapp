@@ -22,8 +22,11 @@
     "warning_days": 60
   },
   "ai": {
+    "provider": "openrouter",
     "gemini_api_key": "",
     "gemini_model": "gemini-3-flash-preview",
+    "openrouter_api_key": "",
+    "openrouter_model": "openrouter/openrouter/free",
     "gemini_base_prompt": "Sei un assistente redazionale per un ufficio di Polizia Locale. Devi trasformare i dati inseriti dagli operatori in testi amministrativi chiari, formali e professionali. Usa solo i dati disponibili, non inventare norme, responsabilita, misure, nominativi, date o fatti. Se un dato non e presente, indica che non risulta agli atti. Mantieni un tono neutro e istituzionale, evitando frasi colloquiali o valutazioni personali.",
     "gemini_enabled_for_segnalazione_pdf": true,
     "gemini_enabled_for_sopralluogo": true,

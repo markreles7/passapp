@@ -4,6 +4,7 @@ import json
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 from app_config import CONFIG_PATH, load_config, save_config
 from core.auth import ADMIN_USERNAME, ROLE_ADMIN, AuthError, AuthenticatedUser, create_user, list_users
 from core.diagnostics import ERROR, OK, WARNING, run_diagnostics
+from core.gemini_verbale import check_openrouter_connection
 from qt_app.widgets import page_header
 
 
@@ -41,7 +43,11 @@ CONFIG_FIELDS = (
     ("paths.fascicoli_segnalazioni_dir", "Cartella fascicoli segnalazioni", "dir"),
     ("paths.report_mensili_dir", "Cartella report mensili", "dir"),
     ("paths.logo_path", "Logo applicazione", "file"),
+    ("ai.provider", "Provider AI (gemini/openrouter)", "text"),
     ("ai.gemini_api_key", "Chiave API Gemini", "secret"),
+    ("ai.gemini_model", "Modello Gemini", "text"),
+    ("ai.openrouter_api_key", "Chiave API OpenRouter", "secret"),
+    ("ai.openrouter_model", "Modello OpenRouter", "text"),
 )
 
 
@@ -96,10 +102,18 @@ class ConfigurationPage(QWidget):
 
         self.status = QLabel("")
         self.status.setObjectName("Muted")
+        buttons_row = QHBoxLayout()
+        buttons_row.addStretch(1)
+        test_openrouter_button = QPushButton("Test OpenRouter")
+        test_openrouter_button.setProperty("secondary", "true")
+        test_openrouter_button.setEnabled(self._can_manage_configuration())
+        test_openrouter_button.clicked.connect(self.test_openrouter)
         save_button = QPushButton("Salva configurazione")
         save_button.setEnabled(self._can_manage_configuration())
         save_button.clicked.connect(self.save)
-        form_card_layout.addWidget(save_button, alignment=Qt.AlignRight)
+        buttons_row.addWidget(test_openrouter_button)
+        buttons_row.addWidget(save_button)
+        form_card_layout.addLayout(buttons_row)
         form_card_layout.addWidget(self.status)
         layout.addWidget(form_card, 3)
 
@@ -146,7 +160,10 @@ class ConfigurationPage(QWidget):
         field = QLineEdit(self._get_value(config, key))
         if browse_type == "secret":
             field.setEchoMode(QLineEdit.Password)
-            field.setPlaceholderText("Inserisci o aggiorna la chiave API Gemini")
+            if key == "ai.openrouter_api_key":
+                field.setPlaceholderText("Inserisci o aggiorna la chiave API OpenRouter")
+            else:
+                field.setPlaceholderText("Inserisci o aggiorna la chiave API Gemini")
         self.fields[key] = field
 
         grid.addWidget(label_widget, row, 0)
@@ -172,18 +189,7 @@ class ConfigurationPage(QWidget):
             QMessageBox.warning(self, "Accesso riservato", "Solo l'amministratore puo modificare la configurazione.")
             return
 
-        raw_config = self._load_raw_config()
-        raw_config.setdefault("paths", {})
-
-        for key, field in self.fields.items():
-            section, name = key.split(".", 1)
-            value = field.text().strip()
-            if name == "ospitalita_patterns":
-                raw_config.setdefault(section, {})[name] = [item.strip() for item in value.split(";") if item.strip()]
-            elif key == "ai.gemini_api_key":
-                raw_config.setdefault(section, {})[name] = value
-            elif value:
-                raw_config.setdefault(section, {})[name] = value
+        raw_config = self._config_from_fields(self._load_raw_config())
 
         try:
             save_config(raw_config)
@@ -194,6 +200,30 @@ class ConfigurationPage(QWidget):
         self.config = load_config(force_reload=True)
         self.status.setText("Configurazione salvata. Riavvia PassApp per ricaricare tutti i moduli gia importati.")
         QMessageBox.information(self, "Configurazione salvata", "I percorsi sono stati salvati correttamente.")
+
+    def test_openrouter(self) -> None:
+        if not self._can_manage_configuration():
+            QMessageBox.warning(self, "Accesso riservato", "Solo l'amministratore puo verificare OpenRouter.")
+            return
+
+        config = self._config_from_fields(self._load_raw_config())
+        ai_config = config.get("ai", {}) if isinstance(config, dict) else {}
+        self.status.setText("Test OpenRouter in corso...")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            result = check_openrouter_connection(ai_config)
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if result.ok:
+            detail = f"{result.detail}\n\nModello: {result.model}"
+            self.status.setText("Test OpenRouter riuscito.")
+            QMessageBox.information(self, "OpenRouter configurato", detail)
+            return
+
+        detail = f"{result.detail}\n\nModello: {result.model}"
+        self.status.setText("Test OpenRouter non riuscito.")
+        QMessageBox.warning(self, "OpenRouter non configurato", detail)
 
     def refresh_diagnostics(self) -> None:
         if not self._can_manage_configuration():
@@ -219,6 +249,19 @@ class ConfigurationPage(QWidget):
         except (OSError, json.JSONDecodeError):
             return {}
         return payload if isinstance(payload, dict) else {}
+
+    def _config_from_fields(self, raw_config: dict) -> dict:
+        raw_config.setdefault("paths", {})
+        for key, field in self.fields.items():
+            section, name = key.split(".", 1)
+            value = field.text().strip()
+            if name == "ospitalita_patterns":
+                raw_config.setdefault(section, {})[name] = [item.strip() for item in value.split(";") if item.strip()]
+            elif section == "ai":
+                raw_config.setdefault(section, {})[name] = value
+            elif value:
+                raw_config.setdefault(section, {})[name] = value
+        return raw_config
 
     @staticmethod
     def _get_value(config: dict, key: str) -> str:

@@ -5,12 +5,15 @@ import os
 import re
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from typing import Any
 
 from app_config import load_config
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 API_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+DEFAULT_OPENROUTER_MODEL = "openrouter/openrouter/free"
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_BASE_PROMPT = (
     "Sei un assistente redazionale per un ufficio di Polizia Locale. "
     "Devi trasformare i dati inseriti dagli operatori in testi amministrativi chiari, formali e professionali. "
@@ -22,6 +25,14 @@ DEFAULT_BASE_PROMPT = (
 SOPRALLUOGO_COPY_FIELDS = ("descrizione", "esito", "note")
 SEGNALAZIONE_COPY_FIELDS = ("descrizione", "verifica", "agente", "riferimento", "note")
 MIN_AI_TEXT_LENGTH = 180
+
+
+@dataclass(frozen=True)
+class AiConnectionTestResult:
+    ok: bool
+    provider: str
+    model: str
+    detail: str
 
 
 def build_sopralluogo_verbale_prompt(payload: dict[str, Any], base_prompt: str | None = None) -> str:
@@ -230,7 +241,7 @@ def generate_sopralluogo_verbale_with_gemini(payload: dict[str, Any], config: di
         return ""
 
     prompt = build_sopralluogo_verbale_prompt(payload, base_prompt=ai_config.get("gemini_base_prompt"))
-    generated = _generate_with_gemini(prompt, ai_config, max_output_tokens=1800)
+    generated = _generate_with_ai(prompt, ai_config, max_output_tokens=1800)
     validated = _validate_sopralluogo_ai_text(generated, payload)
     if validated:
         return validated
@@ -242,7 +253,7 @@ def generate_sopralluogo_verbale_with_gemini(payload: dict[str, Any], config: di
         "Distingui chiaramente segnalazione ricevuta, attivita svolta, stato dei luoghi accertato, valutazione "
         "operativa e chiusura istituzionale. Restituisci solo il corpo del verbale."
     )
-    retry = _generate_with_gemini(retry_prompt, ai_config, max_output_tokens=1800)
+    retry = _generate_with_ai(retry_prompt, ai_config, max_output_tokens=1800)
     return _validate_sopralluogo_ai_text(retry, payload)
 
 
@@ -253,7 +264,7 @@ def generate_segnalazione_text_with_gemini(payload: dict[str, Any], config: dict
         return ""
 
     prompt = build_segnalazione_pdf_prompt(payload, base_prompt=ai_config.get("gemini_base_prompt"))
-    generated = _generate_with_gemini(prompt, ai_config, max_output_tokens=1400)
+    generated = _generate_with_ai(prompt, ai_config, max_output_tokens=1400)
     validated = _validate_segnalazione_ai_text(generated, payload)
     if validated:
         return validated
@@ -264,14 +275,14 @@ def generate_segnalazione_text_with_gemini(payload: dict[str, Any], config: dict
         "tecnico-amministrativo da Polizia Locale, senza copiare le frasi originali. Distingui quanto riferito "
         "dal segnalante da quanto accertato o registrato dall'ufficio. Restituisci solo il corpo della relazione."
     )
-    retry = _generate_with_gemini(retry_prompt, ai_config, max_output_tokens=1400)
+    retry = _generate_with_ai(retry_prompt, ai_config, max_output_tokens=1400)
     return _validate_segnalazione_ai_text(retry, payload)
 
 
 def prepare_sopralluogo_verbale(payload: dict[str, Any], config: dict[str, Any] | None = None) -> tuple[str, str]:
     generated = generate_sopralluogo_verbale_with_gemini(payload, config=config)
     if generated:
-        return generated, "gemini"
+        return generated, _ai_provider_label(config)
     return build_local_sopralluogo_verbale(payload), "locale"
 
 
@@ -282,12 +293,47 @@ def prepare_sopralluogo_verbale_text(payload: dict[str, Any], config: dict[str, 
 def prepare_segnalazione_pdf(payload: dict[str, Any], config: dict[str, Any] | None = None) -> tuple[str, str]:
     generated = generate_segnalazione_text_with_gemini(payload, config=config)
     if generated:
-        return generated, "gemini"
+        return generated, _ai_provider_label(config)
     return build_local_segnalazione_text(payload), "locale"
 
 
 def prepare_segnalazione_pdf_text(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
     return prepare_segnalazione_pdf(payload, config=config)[0]
+
+
+def check_openrouter_connection(ai_config: dict[str, Any]) -> AiConnectionTestResult:
+    api_key = str(ai_config.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    model = str(ai_config.get("openrouter_model") or DEFAULT_OPENROUTER_MODEL).strip() or DEFAULT_OPENROUTER_MODEL
+    if not api_key:
+        return AiConnectionTestResult(False, "openrouter", model, "Chiave API OpenRouter mancante.")
+
+    timeout = _safe_timeout(ai_config.get("gemini_timeout_seconds"))
+    request_payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": "Rispondi solo con la parola OK."}],
+        "temperature": 0,
+        "max_tokens": 8,
+    }
+    request = _build_openrouter_request(request_payload, api_key)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        return AiConnectionTestResult(False, "openrouter", model, _openrouter_http_error_detail(exc))
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        return AiConnectionTestResult(False, "openrouter", model, f"Test non riuscito: {exc}")
+
+    text = _sanitize_generated_text(_extract_openrouter_response_text(response_data))
+    if text:
+        return AiConnectionTestResult(True, "openrouter", model, "Connessione OpenRouter riuscita.")
+    return AiConnectionTestResult(False, "openrouter", model, "Risposta OpenRouter ricevuta, ma senza testo utilizzabile.")
+
+
+def _generate_with_ai(prompt: str, ai_config: dict[str, Any], *, max_output_tokens: int) -> str:
+    provider = _clean_provider(ai_config.get("provider"))
+    if provider == "openrouter":
+        return _generate_with_openrouter(prompt, ai_config, max_output_tokens=max_output_tokens)
+    return _generate_with_gemini(prompt, ai_config, max_output_tokens=max_output_tokens)
 
 
 def _generate_with_gemini(prompt: str, ai_config: dict[str, Any], *, max_output_tokens: int) -> str:
@@ -325,12 +371,85 @@ def _generate_with_gemini(prompt: str, ai_config: dict[str, Any], *, max_output_
     return _sanitize_generated_text(text)
 
 
+def _generate_with_openrouter(prompt: str, ai_config: dict[str, Any], *, max_output_tokens: int) -> str:
+    api_key = str(ai_config.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if not api_key:
+        return ""
+
+    model = str(ai_config.get("openrouter_model") or DEFAULT_OPENROUTER_MODEL).strip() or DEFAULT_OPENROUTER_MODEL
+    timeout = _safe_timeout(ai_config.get("gemini_timeout_seconds"))
+    request_payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        "temperature": 0.2,
+        "top_p": 0.8,
+        "max_tokens": max_output_tokens,
+    }
+    request = _build_openrouter_request(request_payload, api_key)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+        return ""
+
+    text = _extract_openrouter_response_text(response_data)
+    return _sanitize_generated_text(text)
+
+
+def _build_openrouter_request(request_payload: dict[str, Any], api_key: str) -> urllib.request.Request:
+    data = json.dumps(request_payload, ensure_ascii=False).encode("utf-8")
+    return urllib.request.Request(
+        OPENROUTER_API_URL,
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "https://passapp.local",
+            "X-OpenRouter-Title": "PassApp",
+        },
+    )
+
+
+def _openrouter_http_error_detail(exc: urllib.error.HTTPError) -> str:
+    try:
+        body = exc.read().decode("utf-8", errors="replace")
+    except OSError:
+        body = ""
+    body = _sanitize_generated_text(body)
+    if body:
+        return f"OpenRouter ha risposto con errore HTTP {exc.code}: {body[:500]}"
+    return f"OpenRouter ha risposto con errore HTTP {exc.code}."
+
+
 def _extract_response_text(response_data: dict[str, Any]) -> str:
     candidates = response_data.get("candidates") or []
     if not candidates:
         return ""
     parts = ((candidates[0].get("content") or {}).get("parts")) or []
     return "\n".join(str(part.get("text", "")) for part in parts if isinstance(part, dict))
+
+
+def _extract_openrouter_response_text(response_data: dict[str, Any]) -> str:
+    choices = response_data.get("choices") or []
+    if not choices:
+        return ""
+    message = choices[0].get("message") or {}
+    content = message.get("content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text", "")))
+        return "\n".join(part for part in parts if part)
+    return ""
 
 
 def _sanitize_generated_text(text: str) -> str:
@@ -495,6 +614,17 @@ def _strip_terminal_punctuation(text: str) -> str:
 def _clean_model_name(value: str) -> str:
     value = value.strip() or DEFAULT_MODEL
     return value.split("/")[-1]
+
+
+def _clean_provider(value: Any) -> str:
+    provider = str(value or "gemini").strip().lower()
+    return provider if provider in {"gemini", "openrouter"} else "gemini"
+
+
+def _ai_provider_label(config: dict[str, Any] | None = None) -> str:
+    config = config or load_config()
+    ai_config = config.get("ai", {}) if isinstance(config, dict) else {}
+    return _clean_provider(ai_config.get("provider"))
 
 
 def _safe_timeout(value: Any) -> int:

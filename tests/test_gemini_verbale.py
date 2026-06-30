@@ -13,8 +13,10 @@ from core.gemini_verbale import (
     build_sopralluogo_verbale_prompt,
     generate_segnalazione_text_with_gemini,
     generate_sopralluogo_verbale_with_gemini,
+    prepare_sopralluogo_verbale,
     prepare_segnalazione_pdf_text,
     prepare_sopralluogo_verbale_text,
+    check_openrouter_connection,
 )
 
 
@@ -241,6 +243,76 @@ class TestGeminiVerbale(unittest.TestCase):
             text = generate_segnalazione_text_with_gemini(SEGNALAZIONE_PAYLOAD, config=config)
 
         self.assertEqual(text, VALID_SEGNALAZIONE_TEXT)
+
+    def test_openrouter_response_text_is_extracted_and_validated(self):
+        config = {
+            "ai": {
+                "provider": "openrouter",
+                "openrouter_api_key": "or-test-key",
+                "openrouter_model": "openrouter/openrouter/free",
+                "gemini_enabled_for_sopralluogo": True,
+                "gemini_timeout_seconds": 10,
+            }
+        }
+        response = {"choices": [{"message": {"content": VALID_SOPRALLUOGO_TEXT}}]}
+        with patch("core.gemini_verbale.urllib.request.urlopen", return_value=FakeResponse(response)) as urlopen:
+            text = generate_sopralluogo_verbale_with_gemini(PAYLOAD, config=config)
+
+        self.assertEqual(text, VALID_SOPRALLUOGO_TEXT)
+        request = urlopen.call_args.args[0]
+        request_body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(request.full_url, "https://openrouter.ai/api/v1/chat/completions")
+        self.assertEqual(request_body["model"], "openrouter/openrouter/free")
+        self.assertEqual(request_body["messages"][0]["content"], build_sopralluogo_verbale_prompt(PAYLOAD))
+        self.assertEqual(request.get_header("Authorization"), "Bearer or-test-key")
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 10)
+
+    def test_prepare_reports_openrouter_source_when_configured(self):
+        config = {
+            "ai": {
+                "provider": "openrouter",
+                "openrouter_api_key": "or-test-key",
+                "openrouter_model": "openrouter/openrouter/free",
+                "gemini_enabled_for_sopralluogo": True,
+            }
+        }
+        response = {"choices": [{"message": {"content": VALID_SOPRALLUOGO_TEXT}}]}
+        with patch("core.gemini_verbale.urllib.request.urlopen", return_value=FakeResponse(response)):
+            text, source = prepare_sopralluogo_verbale(PAYLOAD, config=config)
+
+        self.assertEqual(text, VALID_SOPRALLUOGO_TEXT)
+        self.assertEqual(source, "openrouter")
+
+    def test_openrouter_connection_test_requires_key(self):
+        with (
+            patch.dict("os.environ", {"OPENROUTER_API_KEY": ""}),
+            patch("core.gemini_verbale.urllib.request.urlopen") as urlopen,
+        ):
+            result = check_openrouter_connection({"openrouter_api_key": "", "openrouter_model": "openrouter/openrouter/free"})
+
+        self.assertFalse(result.ok)
+        self.assertIn("mancante", result.detail)
+        urlopen.assert_not_called()
+
+    def test_openrouter_connection_test_uses_minimal_request(self):
+        response = {"choices": [{"message": {"content": "OK"}}]}
+        config = {
+            "openrouter_api_key": "or-test-key",
+            "openrouter_model": "openrouter/openrouter/free",
+            "gemini_timeout_seconds": 10,
+        }
+        with patch("core.gemini_verbale.urllib.request.urlopen", return_value=FakeResponse(response)) as urlopen:
+            result = check_openrouter_connection(config)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.model, "openrouter/openrouter/free")
+        request = urlopen.call_args.args[0]
+        request_body = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(request.full_url, "https://openrouter.ai/api/v1/chat/completions")
+        self.assertEqual(request_body["max_tokens"], 8)
+        self.assertEqual(request_body["model"], "openrouter/openrouter/free")
+        self.assertEqual(request.get_header("Authorization"), "Bearer or-test-key")
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 10)
 
     def test_prepare_falls_back_to_local_text(self):
         config = {"ai": {"gemini_api_key": "", "gemini_enabled_for_sopralluogo": True}}
