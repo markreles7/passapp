@@ -2,11 +2,19 @@ import tempfile
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
 from core.fascicoli import add_attachment
 from core.sopralluoghi import Sopralluogo
 from qt_app import sopralluoghi_pdf
-from qt_app.sopralluoghi_pdf import build_pdf_payload, build_verbale_recipients, build_verbale_subject, safe_pdf_filename
+from qt_app.sopralluoghi_pdf import (
+    PHOTO_CAPTION_FALLBACK,
+    build_pdf_payload,
+    build_verbale_recipients,
+    build_verbale_subject,
+    enrich_photo_descriptions_with_ai,
+    safe_pdf_filename,
+)
 
 
 @dataclass
@@ -83,6 +91,32 @@ class TestSopralluoghiPdf(unittest.TestCase):
             ],
         )
 
+    def test_photo_descriptions_are_generated_only_when_missing(self):
+        payload = {
+            "luogo": "Str. Mantovana 62",
+            "descrizione": "Vegetazione presente a bordo strada",
+            "foto_items": [
+                {"path": "foto_1.jpg", "descrizione": ""},
+                {"path": "foto_2.jpg", "descrizione": "Descrizione gia presente"},
+            ],
+        }
+        with patch(
+            "qt_app.sopralluoghi_pdf.generate_photo_caption_with_ai",
+            return_value="Veduta dell'area stradale con vegetazione ai margini.",
+        ) as generator:
+            enrich_photo_descriptions_with_ai(payload, config={"ai": {"provider": "openrouter"}})
+
+        self.assertEqual(payload["foto_items"][0]["descrizione"], "Veduta dell'area stradale con vegetazione ai margini.")
+        self.assertEqual(payload["foto_items"][1]["descrizione"], "Descrizione gia presente")
+        generator.assert_called_once()
+
+    def test_photo_description_falls_back_when_ai_is_unavailable(self):
+        payload = {"foto_items": [{"path": "foto_1.jpg", "descrizione": ""}]}
+        with patch("qt_app.sopralluoghi_pdf.generate_photo_caption_with_ai", return_value=""):
+            enrich_photo_descriptions_with_ai(payload, config={"ai": {"provider": "openrouter"}})
+
+        self.assertEqual(payload["foto_items"][0]["descrizione"], PHOTO_CAPTION_FALLBACK)
+
     def test_template_renderer_does_not_replace_long_ai_text_as_token(self):
         source = Path(sopralluoghi_pdf.__file__).read_text(encoding="utf-8")
 
@@ -92,6 +126,7 @@ class TestSopralluoghiPdf(unittest.TestCase):
         self.assertIn("OGGETTO: ", source)
         self.assertIn("foreach ($destinatario in @($payload.destinatari))", source)
         self.assertIn("Add-LongText -Selection $sel -Text ([string]$payload.verbale_generato)", source)
+        self.assertIn("Add-Paragraph -Selection $Selection -Text $caption -Size 9 -Alignment 1", source)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from PIL import Image
 
 from app_config import load_config
 
@@ -301,6 +306,29 @@ def prepare_segnalazione_pdf_text(payload: dict[str, Any], config: dict[str, Any
     return prepare_segnalazione_pdf(payload, config=config)[0]
 
 
+def generate_photo_caption_with_ai(
+    image_path: str | Path,
+    payload: dict[str, Any],
+    config: dict[str, Any] | None = None,
+) -> str:
+    config = config or load_config()
+    ai_config = config.get("ai", {}) if isinstance(config, dict) else {}
+    if not ai_config.get("photo_descriptions_enabled", True):
+        return ""
+
+    path = Path(image_path)
+    if not path.exists() or not path.is_file():
+        return ""
+
+    prompt = _build_photo_caption_prompt(payload)
+    provider = _clean_provider(ai_config.get("provider"))
+    if provider == "openrouter":
+        generated = _generate_photo_caption_with_openrouter(path, prompt, ai_config)
+    else:
+        generated = _generate_photo_caption_with_gemini(path, prompt, ai_config)
+    return _sanitize_photo_caption(generated)
+
+
 def check_openrouter_connection(ai_config: dict[str, Any]) -> AiConnectionTestResult:
     api_key = str(ai_config.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY") or "").strip()
     model = str(ai_config.get("openrouter_model") or DEFAULT_OPENROUTER_MODEL).strip() or DEFAULT_OPENROUTER_MODEL
@@ -401,6 +429,83 @@ def _generate_with_openrouter(prompt: str, ai_config: dict[str, Any], *, max_out
     return _sanitize_generated_text(text)
 
 
+def _generate_photo_caption_with_openrouter(image_path: Path, prompt: str, ai_config: dict[str, Any]) -> str:
+    api_key = str(ai_config.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if not api_key:
+        return ""
+
+    data_url = _image_data_url(image_path)
+    if not data_url:
+        return ""
+
+    model = str(ai_config.get("openrouter_model") or DEFAULT_OPENROUTER_MODEL).strip() or DEFAULT_OPENROUTER_MODEL
+    timeout = _safe_timeout(ai_config.get("gemini_timeout_seconds"))
+    request_payload = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            }
+        ],
+        "temperature": 0.2,
+        "max_tokens": 80,
+    }
+    request = _build_openrouter_request(request_payload, api_key)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+        return ""
+    return _extract_openrouter_response_text(response_data)
+
+
+def _generate_photo_caption_with_gemini(image_path: Path, prompt: str, ai_config: dict[str, Any]) -> str:
+    api_key = str(ai_config.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not api_key:
+        return ""
+
+    image_data = _image_base64(image_path)
+    if not image_data:
+        return ""
+
+    model = _clean_model_name(str(ai_config.get("gemini_model") or DEFAULT_MODEL))
+    timeout = _safe_timeout(ai_config.get("gemini_timeout_seconds"))
+    request_payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {"inlineData": {"mimeType": "image/jpeg", "data": image_data}},
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 80,
+        },
+    }
+    data = json.dumps(request_payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        API_URL_TEMPLATE.format(model=model),
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+        return ""
+    return _extract_response_text(response_data)
+
+
 def _build_openrouter_request(request_payload: dict[str, Any], api_key: str) -> urllib.request.Request:
     data = json.dumps(request_payload, ensure_ascii=False).encode("utf-8")
     return urllib.request.Request(
@@ -458,6 +563,65 @@ def _sanitize_generated_text(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]+", " ", text)
     return text[:6000].strip()
+
+
+def _sanitize_photo_caption(text: str) -> str:
+    text = _sanitize_generated_text(text)
+    if not text:
+        return ""
+    text = re.sub(r"```(?:\w+)?", "", text)
+    text = text.replace("```", "")
+    text = re.sub(r"^[\s\"'“”«»*-]+|[\s\"'“”«»*-]+$", "", text)
+    text = re.sub(r"^(?:didascalia|descrizione)\s*:\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    text = sentences[0].strip() if sentences else text
+    if len(text) > 180:
+        text = text[:180].rsplit(" ", 1)[0].rstrip(" ,.;:") + "."
+    return text
+
+
+def _build_photo_caption_prompt(payload: dict[str, Any]) -> str:
+    facts = {
+        "luogo_sopralluogo": payload.get("luogo", "-"),
+        "indirizzo_segnalazione": payload.get("indirizzo_segnalazione", "-"),
+        "oggetto_segnalazione": payload.get("descrizione", "-"),
+        "esito_sopralluogo": payload.get("esito", "-"),
+        "note_operative": payload.get("note", "-"),
+    }
+    facts_text = json.dumps(facts, ensure_ascii=False)
+    return (
+        "Osserva la foto allegata a un sopralluogo di Polizia Locale e genera una sola breve didascalia "
+        "tecnico-amministrativa in italiano, massimo 18 parole. Descrivi solo elementi visibili nella foto; "
+        "non inventare pericoli, responsabilita, norme, targhe, persone o misure. Se utile, usa il contesto "
+        f"seguente solo per orientarti: {facts_text}. Restituisci solo la didascalia, senza virgolette."
+    )
+
+
+def _image_data_url(path: Path) -> str:
+    encoded = _image_base64(path)
+    if not encoded:
+        return ""
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def _image_base64(path: Path) -> str:
+    try:
+        data = _image_bytes_for_ai(path)
+    except OSError:
+        return ""
+    return base64.b64encode(data).decode("ascii")
+
+
+def _image_bytes_for_ai(path: Path) -> bytes:
+    with Image.open(path) as image:
+        image = image.convert("RGB")
+        image.thumbnail((1280, 1280))
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=80, optimize=True)
+        return buffer.getvalue()
 
 
 def _looks_like_raw_copy(

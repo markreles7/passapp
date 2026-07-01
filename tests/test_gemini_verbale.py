@@ -1,6 +1,10 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
+
+from PIL import Image
 
 from core.gemini_verbale import (
     DEFAULT_BASE_PROMPT,
@@ -12,6 +16,7 @@ from core.gemini_verbale import (
     build_segnalazione_pdf_prompt,
     build_sopralluogo_verbale_prompt,
     generate_segnalazione_text_with_gemini,
+    generate_photo_caption_with_ai,
     generate_sopralluogo_verbale_with_gemini,
     prepare_sopralluogo_verbale,
     prepare_segnalazione_pdf_text,
@@ -313,6 +318,46 @@ class TestGeminiVerbale(unittest.TestCase):
         self.assertEqual(request_body["model"], "openrouter/openrouter/free")
         self.assertEqual(request.get_header("Authorization"), "Bearer or-test-key")
         self.assertEqual(urlopen.call_args.kwargs["timeout"], 10)
+
+    def test_openrouter_photo_caption_sends_image_content(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            image_path = Path(tmp_dir) / "foto.jpg"
+            Image.new("RGB", (20, 20), color=(80, 120, 160)).save(image_path)
+            response = {"choices": [{"message": {"content": "Area stradale con vegetazione ai margini."}}]}
+            config = {
+                "ai": {
+                    "provider": "openrouter",
+                    "openrouter_api_key": "or-test-key",
+                    "openrouter_model": "openrouter/openrouter/free",
+                    "photo_descriptions_enabled": True,
+                    "gemini_timeout_seconds": 10,
+                }
+            }
+            with patch("core.gemini_verbale.urllib.request.urlopen", return_value=FakeResponse(response)) as urlopen:
+                caption = generate_photo_caption_with_ai(image_path, PAYLOAD, config=config)
+
+        self.assertEqual(caption, "Area stradale con vegetazione ai margini.")
+        request = urlopen.call_args.args[0]
+        request_body = json.loads(request.data.decode("utf-8"))
+        content = request_body["messages"][0]["content"]
+        self.assertEqual(content[0]["type"], "text")
+        self.assertEqual(content[1]["type"], "image_url")
+        self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+        self.assertEqual(request_body["max_tokens"], 80)
+
+    def test_photo_caption_respects_disabled_config(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            image_path = Path(tmp_dir) / "foto.jpg"
+            Image.new("RGB", (20, 20), color=(80, 120, 160)).save(image_path)
+            with patch("core.gemini_verbale.urllib.request.urlopen") as urlopen:
+                caption = generate_photo_caption_with_ai(
+                    image_path,
+                    PAYLOAD,
+                    config={"ai": {"provider": "openrouter", "photo_descriptions_enabled": False}},
+                )
+
+        self.assertEqual(caption, "")
+        urlopen.assert_not_called()
 
     def test_prepare_falls_back_to_local_text(self):
         config = {"ai": {"gemini_api_key": "", "gemini_enabled_for_sopralluogo": True}}

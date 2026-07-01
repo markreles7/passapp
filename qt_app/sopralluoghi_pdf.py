@@ -10,13 +10,14 @@ from typing import Any
 
 from app_config import load_config, resolve_path
 from core.fascicoli import list_attachments, relative_to_path
-from core.gemini_verbale import prepare_sopralluogo_verbale
+from core.gemini_verbale import generate_photo_caption_with_ai, prepare_sopralluogo_verbale
 from core.sopralluoghi import Sopralluogo
 
 APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
 SEGNALAZIONI_PDF_DIR = resolve_path(PATHS["segnalazioni_pdf_dir"])
 VERBALE_SOPRALLUOGO_TEMPLATE = resolve_path(PATHS.get("verbale_sopralluogo_template", "templates/verbale_sopralluogo.doc"))
+PHOTO_CAPTION_FALLBACK = "Foto allegata al sopralluogo."
 
 
 def safe_pdf_filename(value: str) -> str:
@@ -126,13 +127,29 @@ def build_pdf_payload(segnalazione, item: Sopralluogo, registry_path: Path | Non
     }
 
 
+def enrich_photo_descriptions_with_ai(payload: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or load_config(force_reload=True)
+    for photo in payload.get("foto_items", []):
+        if not isinstance(photo, dict):
+            continue
+        current_description = str(photo.get("descrizione") or "").strip()
+        if current_description:
+            photo["descrizione"] = current_description
+            continue
+        generated = generate_photo_caption_with_ai(photo.get("path", ""), payload, config=config)
+        photo["descrizione"] = generated or PHOTO_CAPTION_FALLBACK
+    return payload
+
+
 def render_sopralluogo_pdf(segnalazione, item: Sopralluogo, output_pdf: Path) -> Path:
     output_pdf = Path(output_pdf)
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     payload = build_pdf_payload(segnalazione, item)
+    config = load_config(force_reload=True)
     payload["oggetto_verbale"] = build_verbale_subject(payload)
     payload["destinatari"] = build_verbale_recipients(payload.get("ufficio", ""))
-    payload["verbale_generato"], payload["testo_generato_da"] = prepare_sopralluogo_verbale(payload)
+    enrich_photo_descriptions_with_ai(payload, config=config)
+    payload["verbale_generato"], payload["testo_generato_da"] = prepare_sopralluogo_verbale(payload, config=config)
     if VERBALE_SOPRALLUOGO_TEMPLATE.exists():
         return render_sopralluogo_pdf_from_template(VERBALE_SOPRALLUOGO_TEMPLATE, payload, output_pdf)
     ps_script = r"""
@@ -194,12 +211,9 @@ function Add-Photo {
             $shape.Width = $shape.Width * $ratio
         }
         $Selection.TypeParagraph()
-        Add-Paragraph -Selection $Selection -Text ("Foto: " + [string]$Photo.nome_file + " - " + [string]$Photo.origine) -Size 8 -Bold $true -SpaceAfter 1
-        if ([string]$Photo.descrizione -ne "") {
-            Add-Paragraph -Selection $Selection -Text ([string]$Photo.descrizione) -Size 8 -SpaceAfter 6
-        } else {
-            Add-Paragraph -Selection $Selection -Text "Descrizione non indicata." -Size 8 -SpaceAfter 6
-        }
+        $caption = [string]$Photo.descrizione
+        if ($caption -eq "") { $caption = "Foto allegata al sopralluogo." }
+        Add-Paragraph -Selection $Selection -Text $caption -Size 9 -Alignment 1 -SpaceAfter 8
     } catch {
         Add-Paragraph -Selection $Selection -Text ("Foto non inserita: " + [string]$Photo.nome_file) -Size 8 -SpaceAfter 4
     }
@@ -435,7 +449,7 @@ function Add-Photo {
         $Selection.TypeParagraph()
         $caption = [string]$Photo.descrizione
         if ($caption -eq "") { $caption = [string]$Photo.nome_file }
-        Add-Paragraph -Selection $Selection -Text $caption -Size 9 -SpaceAfter 8
+        Add-Paragraph -Selection $Selection -Text $caption -Size 9 -Alignment 1 -SpaceAfter 8
     } catch {
         Add-Paragraph -Selection $Selection -Text ("Foto non inserita: " + [string]$Photo.nome_file) -Size 8 -SpaceAfter 4
     }

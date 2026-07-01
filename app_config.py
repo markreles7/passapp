@@ -94,6 +94,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         ),
         "gemini_enabled_for_segnalazione_pdf": True,
         "gemini_enabled_for_sopralluogo": True,
+        "photo_descriptions_enabled": True,
         "gemini_timeout_seconds": 45,
     },
     "auth": {
