@@ -52,6 +52,15 @@ def build_pdf_payload(seg: Segnalazione) -> dict[str, str]:
     }
 
 
+def ai_source_label(source: str) -> str:
+    normalized = str(source or "").strip().lower()
+    if normalized == "openrouter":
+        return "Testo descrittivo generato con AI tramite OpenRouter."
+    if normalized == "gemini":
+        return "Testo descrittivo generato con AI tramite Gemini."
+    return "Testo descrittivo generato localmente da PassApp (fallback senza AI esterna)."
+
+
 def render_segnalazione_pdf(
     payload: dict[str, Any],
     output_pdf: Path,
@@ -63,6 +72,7 @@ def render_segnalazione_pdf(
     payload = dict(payload)
     payload["include_raw_fields"] = bool(include_raw_fields)
     payload["testo_segnalazione_generato"], payload["testo_generato_da"] = prepare_segnalazione_pdf(payload)
+    payload["testo_generato_label"] = ai_source_label(str(payload.get("testo_generato_da", "")))
     ps_script = r"""
 param(
     [Parameter(Mandatory = $true)][string]$PdfPath,
@@ -197,6 +207,7 @@ try {
     $ricevente = Compact-Text -Text $payload.ricevente -MaxLength 60
     $descrizione = Compact-Text -Text $payload.descrizione -MaxLength 650
     $testoSegnalazione = [string]$payload.testo_segnalazione_generato
+    $testoGeneratoLabel = [string]$payload.testo_generato_label
     $agente = Compact-Text -Text $payload.agente -MaxLength 60
     $dataAccertamento = Compact-Text -Text $payload.data_accertamento -MaxLength 30
     $verifica = Compact-Text -Text $payload.verifica -MaxLength 340
@@ -214,7 +225,8 @@ try {
 
     Add-Paragraph -Selection $sel -Text "COMUNE DI PEGOGNAGA" -Size 11 -Bold $true -Alignment 1 -SpaceAfter 1
     Add-Paragraph -Selection $sel -Text "Polizia Locale" -Size 10 -Bold $true -Alignment 1 -SpaceAfter 1
-    Add-Paragraph -Selection $sel -Text "RELAZIONE DI SEGNALAZIONE" -Size 12 -Bold $true -Alignment 1 -SpaceAfter 6
+    Add-Paragraph -Selection $sel -Text "RELAZIONE DI SEGNALAZIONE" -Size 12 -Bold $true -Alignment 1 -SpaceAfter 2
+    Add-Paragraph -Selection $sel -Text $testoGeneratoLabel -Size 8 -Alignment 1 -SpaceAfter 6
 
     Add-LeftRightLine -Selection $sel -LeftText ("Pratica n. " + $numero + " - Stato: " + $stato) -RightText ("Rif.: " + $riferimento) -RightTab $rightTab -Size 9 -BoldLeft $true -BoldRight $true -SpaceAfter 5
     Add-InfoLine -Selection $sel -LabelLeft "Data/Ora ricezione: " -ValueLeft $ricezione -MidTab $midTab -LabelRight "Modalita': " -ValueRight $modalita -Size 9 -SpaceAfter 2

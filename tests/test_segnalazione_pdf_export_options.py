@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.segnalazioni_pdf import render_segnalazione_pdf
+from core.segnalazioni_pdf import ai_source_label, render_segnalazione_pdf
 
 
 PDF_PAYLOAD = {
@@ -30,7 +30,7 @@ PDF_PAYLOAD = {
 
 
 class TestSegnalazionePdfExportOptions(unittest.TestCase):
-    def _render_and_capture(self, *, include_raw_fields: bool | None = None):
+    def _render_and_capture(self, *, include_raw_fields: bool | None = None, source: str = "locale"):
         captured: dict[str, object] = {}
 
         def fake_run(command, **_kwargs):
@@ -44,7 +44,7 @@ class TestSegnalazionePdfExportOptions(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_dir, patch(
             "core.segnalazioni_pdf.prepare_segnalazione_pdf",
-            return_value=("Relazione descrittiva riformulata.", "locale"),
+            return_value=("Relazione descrittiva riformulata.", source),
         ), patch("core.segnalazioni_pdf.subprocess.run", side_effect=fake_run):
             output_pdf = Path(tmp_dir) / "segnalazione.pdf"
             if include_raw_fields is None:
@@ -71,6 +71,22 @@ class TestSegnalazionePdfExportOptions(unittest.TestCase):
         script = str(captured["script"])
         self.assertIn("ALLEGATO INTERNO - DATI ORIGINALI REGISTRATI", script)
         self.assertIn("ATTIVITA' DI ACCERTAMENTO", script)
+
+    def test_pdf_export_includes_ai_source_label_for_openrouter(self):
+        captured = self._render_and_capture(source="openrouter")
+
+        self.assertEqual(captured["payload"]["testo_generato_da"], "openrouter")
+        self.assertEqual(
+            captured["payload"]["testo_generato_label"],
+            "Testo descrittivo generato con AI tramite OpenRouter.",
+        )
+        self.assertIn("$testoGeneratoLabel = [string]$payload.testo_generato_label", str(captured["script"]))
+
+    def test_ai_source_label_reports_local_fallback(self):
+        self.assertEqual(
+            ai_source_label("locale"),
+            "Testo descrittivo generato localmente da PassApp (fallback senza AI esterna).",
+        )
 
 
 if __name__ == "__main__":
