@@ -84,7 +84,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "gemini_api_key": "",
         "gemini_model": "gemini-3-flash-preview",
         "openrouter_api_key": "",
-        "openrouter_model": "openrouter/openrouter/free",
+        "openrouter_model": "openrouter/free",
         "gemini_base_prompt": (
             "Sei un assistente redazionale per un ufficio di Polizia Locale. "
             "Devi trasformare i dati inseriti dagli operatori in testi amministrativi chiari, formali e professionali. "

@@ -258,6 +258,8 @@ class ConfigurationPage(QWidget):
             if name == "ospitalita_patterns":
                 raw_config.setdefault(section, {})[name] = [item.strip() for item in value.split(";") if item.strip()]
             elif section == "ai":
+                if name == "openrouter_model" and value.strip().lower() in {"", "free"}:
+                    value = "openrouter/free"
                 raw_config.setdefault(section, {})[name] = value
             elif value:
                 raw_config.setdefault(section, {})[name] = value

@@ -11,6 +11,7 @@ from core.gemini_verbale import (
     _looks_like_raw_copy,
     _validate_segnalazione_ai_text,
     _validate_sopralluogo_ai_text,
+    _openrouter_model,
     build_local_segnalazione_text,
     build_local_sopralluogo_verbale,
     build_segnalazione_pdf_prompt,
@@ -254,7 +255,7 @@ class TestGeminiVerbale(unittest.TestCase):
             "ai": {
                 "provider": "openrouter",
                 "openrouter_api_key": "or-test-key",
-                "openrouter_model": "openrouter/openrouter/free",
+                "openrouter_model": "openrouter/free",
                 "gemini_enabled_for_sopralluogo": True,
                 "gemini_timeout_seconds": 10,
             }
@@ -267,7 +268,7 @@ class TestGeminiVerbale(unittest.TestCase):
         request = urlopen.call_args.args[0]
         request_body = json.loads(request.data.decode("utf-8"))
         self.assertEqual(request.full_url, "https://openrouter.ai/api/v1/chat/completions")
-        self.assertEqual(request_body["model"], "openrouter/openrouter/free")
+        self.assertEqual(request_body["model"], "openrouter/free")
         self.assertEqual(request_body["messages"][0]["content"], build_sopralluogo_verbale_prompt(PAYLOAD))
         self.assertEqual(request.get_header("Authorization"), "Bearer or-test-key")
         self.assertEqual(urlopen.call_args.kwargs["timeout"], 10)
@@ -277,7 +278,7 @@ class TestGeminiVerbale(unittest.TestCase):
             "ai": {
                 "provider": "openrouter",
                 "openrouter_api_key": "or-test-key",
-                "openrouter_model": "openrouter/openrouter/free",
+                "openrouter_model": "openrouter/free",
                 "gemini_enabled_for_sopralluogo": True,
             }
         }
@@ -293,7 +294,7 @@ class TestGeminiVerbale(unittest.TestCase):
             patch.dict("os.environ", {"OPENROUTER_API_KEY": ""}),
             patch("core.gemini_verbale.urllib.request.urlopen") as urlopen,
         ):
-            result = check_openrouter_connection({"openrouter_api_key": "", "openrouter_model": "openrouter/openrouter/free"})
+            result = check_openrouter_connection({"openrouter_api_key": "", "openrouter_model": "openrouter/free"})
 
         self.assertFalse(result.ok)
         self.assertIn("mancante", result.detail)
@@ -303,21 +304,51 @@ class TestGeminiVerbale(unittest.TestCase):
         response = {"choices": [{"message": {"content": "OK"}}]}
         config = {
             "openrouter_api_key": "or-test-key",
-            "openrouter_model": "openrouter/openrouter/free",
+            "openrouter_model": "openrouter/free",
             "gemini_timeout_seconds": 10,
         }
         with patch("core.gemini_verbale.urllib.request.urlopen", return_value=FakeResponse(response)) as urlopen:
             result = check_openrouter_connection(config)
 
         self.assertTrue(result.ok)
-        self.assertEqual(result.model, "openrouter/openrouter/free")
+        self.assertEqual(result.model, "openrouter/free")
         request = urlopen.call_args.args[0]
         request_body = json.loads(request.data.decode("utf-8"))
         self.assertEqual(request.full_url, "https://openrouter.ai/api/v1/chat/completions")
         self.assertEqual(request_body["max_tokens"], 8)
-        self.assertEqual(request_body["model"], "openrouter/openrouter/free")
+        self.assertEqual(request_body["model"], "openrouter/free")
         self.assertEqual(request.get_header("Authorization"), "Bearer or-test-key")
         self.assertEqual(urlopen.call_args.kwargs["timeout"], 10)
+
+    def test_openrouter_model_alias_is_normalized(self):
+        self.assertEqual(_openrouter_model({"openrouter_model": "openrouter/free"}), "openrouter/free")
+        self.assertEqual(_openrouter_model({"openrouter_model": "free"}), "openrouter/free")
+        self.assertEqual(_openrouter_model({"openrouter_model": ""}), "openrouter/free")
+        self.assertEqual(_openrouter_model({"openrouter_model": "google/gemini-2.5-flash"}), "google/gemini-2.5-flash")
+
+    def test_openrouter_generation_retries_empty_response(self):
+        config = {
+            "ai": {
+                "provider": "openrouter",
+                "openrouter_api_key": "or-test-key",
+                "openrouter_model": "openrouter/free",
+                "gemini_enabled_for_sopralluogo": True,
+                "gemini_timeout_seconds": 10,
+            }
+        }
+        empty_response = {"choices": [{"message": {"content": ""}, "finish_reason": "stop"}]}
+        valid_response = {"choices": [{"message": {"content": VALID_SOPRALLUOGO_TEXT}}]}
+        with patch(
+            "core.gemini_verbale.urllib.request.urlopen",
+            side_effect=[FakeResponse(empty_response), FakeResponse(valid_response)],
+        ) as urlopen:
+            text = generate_sopralluogo_verbale_with_gemini(PAYLOAD, config=config)
+
+        self.assertEqual(text, VALID_SOPRALLUOGO_TEXT)
+        self.assertEqual(urlopen.call_count, 2)
+        first_request = urlopen.call_args_list[0].args[0]
+        first_body = json.loads(first_request.data.decode("utf-8"))
+        self.assertEqual(first_body["model"], "openrouter/free")
 
     def test_openrouter_photo_caption_sends_image_content(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -328,7 +359,7 @@ class TestGeminiVerbale(unittest.TestCase):
                 "ai": {
                     "provider": "openrouter",
                     "openrouter_api_key": "or-test-key",
-                    "openrouter_model": "openrouter/openrouter/free",
+                    "openrouter_model": "openrouter/free",
                     "photo_descriptions_enabled": True,
                     "gemini_timeout_seconds": 10,
                 }

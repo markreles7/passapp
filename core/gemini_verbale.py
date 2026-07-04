@@ -13,12 +13,14 @@ from typing import Any
 
 from PIL import Image
 
-from app_config import load_config
+from app_config import load_config, resolve_path
+from core.logging_utils import setup_module_logger
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 API_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-DEFAULT_OPENROUTER_MODEL = "openrouter/openrouter/free"
+DEFAULT_OPENROUTER_MODEL = "openrouter/free"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+logger = setup_module_logger(__name__, resolve_path("data/passapp.log"))
 DEFAULT_BASE_PROMPT = (
     "Sei un assistente redazionale per un ufficio di Polizia Locale. "
     "Devi trasformare i dati inseriti dagli operatori in testi amministrativi chiari, formali e professionali. "
@@ -250,6 +252,8 @@ def generate_sopralluogo_verbale_with_gemini(payload: dict[str, Any], config: di
     validated = _validate_sopralluogo_ai_text(generated, payload)
     if validated:
         return validated
+    if generated:
+        logger.warning("AI sopralluogo scartata dalla validazione; uso fallback locale.")
 
     retry_prompt = (
         f"{prompt}\n\n"
@@ -259,7 +263,10 @@ def generate_sopralluogo_verbale_with_gemini(payload: dict[str, Any], config: di
         "operativa e chiusura istituzionale. Restituisci solo il corpo del verbale."
     )
     retry = _generate_with_ai(retry_prompt, ai_config, max_output_tokens=1800)
-    return _validate_sopralluogo_ai_text(retry, payload)
+    validated_retry = _validate_sopralluogo_ai_text(retry, payload)
+    if retry and not validated_retry:
+        logger.warning("AI sopralluogo scartata anche al retry; uso fallback locale.")
+    return validated_retry
 
 
 def generate_segnalazione_text_with_gemini(payload: dict[str, Any], config: dict[str, Any] | None = None) -> str:
@@ -273,6 +280,8 @@ def generate_segnalazione_text_with_gemini(payload: dict[str, Any], config: dict
     validated = _validate_segnalazione_ai_text(generated, payload)
     if validated:
         return validated
+    if generated:
+        logger.warning("AI segnalazione scartata dalla validazione; uso fallback locale.")
 
     retry_prompt = (
         f"{prompt}\n\n"
@@ -281,7 +290,10 @@ def generate_segnalazione_text_with_gemini(payload: dict[str, Any], config: dict
         "dal segnalante da quanto accertato o registrato dall'ufficio. Restituisci solo il corpo della relazione."
     )
     retry = _generate_with_ai(retry_prompt, ai_config, max_output_tokens=1400)
-    return _validate_segnalazione_ai_text(retry, payload)
+    validated_retry = _validate_segnalazione_ai_text(retry, payload)
+    if retry and not validated_retry:
+        logger.warning("AI segnalazione scartata anche al retry; uso fallback locale.")
+    return validated_retry
 
 
 def prepare_sopralluogo_verbale(payload: dict[str, Any], config: dict[str, Any] | None = None) -> tuple[str, str]:
@@ -331,7 +343,7 @@ def generate_photo_caption_with_ai(
 
 def check_openrouter_connection(ai_config: dict[str, Any]) -> AiConnectionTestResult:
     api_key = str(ai_config.get("openrouter_api_key") or os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    model = str(ai_config.get("openrouter_model") or DEFAULT_OPENROUTER_MODEL).strip() or DEFAULT_OPENROUTER_MODEL
+    model = _openrouter_model(ai_config)
     if not api_key:
         return AiConnectionTestResult(False, "openrouter", model, "Chiave API OpenRouter mancante.")
 
@@ -354,7 +366,13 @@ def check_openrouter_connection(ai_config: dict[str, Any]) -> AiConnectionTestRe
     text = _sanitize_generated_text(_extract_openrouter_response_text(response_data))
     if text:
         return AiConnectionTestResult(True, "openrouter", model, "Connessione OpenRouter riuscita.")
-    return AiConnectionTestResult(False, "openrouter", model, "Risposta OpenRouter ricevuta, ma senza testo utilizzabile.")
+    return AiConnectionTestResult(
+        False,
+        "openrouter",
+        model,
+        "Risposta OpenRouter ricevuta, ma senza testo utilizzabile. "
+        f"Dettaglio: {_openrouter_empty_response_detail(response_data)}",
+    )
 
 
 def _generate_with_ai(prompt: str, ai_config: dict[str, Any], *, max_output_tokens: int) -> str:
@@ -404,7 +422,7 @@ def _generate_with_openrouter(prompt: str, ai_config: dict[str, Any], *, max_out
     if not api_key:
         return ""
 
-    model = str(ai_config.get("openrouter_model") or DEFAULT_OPENROUTER_MODEL).strip() or DEFAULT_OPENROUTER_MODEL
+    model = _openrouter_model(ai_config)
     timeout = _safe_timeout(ai_config.get("gemini_timeout_seconds"))
     request_payload = {
         "model": model,
@@ -418,15 +436,27 @@ def _generate_with_openrouter(prompt: str, ai_config: dict[str, Any], *, max_out
         "top_p": 0.8,
         "max_tokens": max_output_tokens,
     }
-    request = _build_openrouter_request(request_payload, api_key)
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
-        return ""
+    for attempt in range(1, 4):
+        request = _build_openrouter_request(request_payload, api_key)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                response_data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            logger.warning("OpenRouter HTTP error al tentativo %s: %s", attempt, _openrouter_http_error_detail(exc))
+            continue
+        except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            logger.warning("OpenRouter non disponibile al tentativo %s: %s", attempt, exc)
+            continue
 
-    text = _extract_openrouter_response_text(response_data)
-    return _sanitize_generated_text(text)
+        text = _sanitize_generated_text(_extract_openrouter_response_text(response_data))
+        if text:
+            return text
+        logger.warning(
+            "OpenRouter risposta senza testo al tentativo %s: %s",
+            attempt,
+            _openrouter_empty_response_detail(response_data),
+        )
+    return ""
 
 
 def _generate_photo_caption_with_openrouter(image_path: Path, prompt: str, ai_config: dict[str, Any]) -> str:
@@ -438,7 +468,7 @@ def _generate_photo_caption_with_openrouter(image_path: Path, prompt: str, ai_co
     if not data_url:
         return ""
 
-    model = str(ai_config.get("openrouter_model") or DEFAULT_OPENROUTER_MODEL).strip() or DEFAULT_OPENROUTER_MODEL
+    model = _openrouter_model(ai_config)
     timeout = _safe_timeout(ai_config.get("gemini_timeout_seconds"))
     request_payload = {
         "model": model,
@@ -530,6 +560,24 @@ def _openrouter_http_error_detail(exc: urllib.error.HTTPError) -> str:
     if body:
         return f"OpenRouter ha risposto con errore HTTP {exc.code}: {body[:500]}"
     return f"OpenRouter ha risposto con errore HTTP {exc.code}."
+
+
+def _openrouter_empty_response_detail(response_data: dict[str, Any]) -> str:
+    error = response_data.get("error")
+    if isinstance(error, dict):
+        message = str(error.get("message") or error.get("code") or "").strip()
+        return message[:500] if message else "campo error presente ma vuoto"
+    choices = response_data.get("choices") or []
+    if choices and isinstance(choices[0], dict):
+        finish_reason = str(choices[0].get("finish_reason") or "").strip()
+        message = choices[0].get("message") or {}
+        if isinstance(message, dict):
+            refusal = str(message.get("refusal") or "").strip()
+            if refusal:
+                return f"refusal={refusal[:300]}"
+        if finish_reason:
+            return f"finish_reason={finish_reason}"
+    return _sanitize_generated_text(json.dumps(response_data, ensure_ascii=False))[:500] or "risposta vuota"
 
 
 def _extract_response_text(response_data: dict[str, Any]) -> str:
@@ -783,6 +831,18 @@ def _clean_model_name(value: str) -> str:
 def _clean_provider(value: Any) -> str:
     provider = str(value or "gemini").strip().lower()
     return provider if provider in {"gemini", "openrouter"} else "gemini"
+
+
+def _openrouter_model(ai_config: dict[str, Any]) -> str:
+    model = str(ai_config.get("openrouter_model") or DEFAULT_OPENROUTER_MODEL).strip()
+    aliases = {
+        "",
+        "free",
+        "openrouter/free",
+    }
+    if model.lower() in aliases:
+        return DEFAULT_OPENROUTER_MODEL
+    return model
 
 
 def _ai_provider_label(config: dict[str, Any] | None = None) -> str:
