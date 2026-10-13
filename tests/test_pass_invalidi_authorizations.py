@@ -31,7 +31,7 @@ class TestPassInvalidiAuthorizations(unittest.TestCase):
     def test_template_resolution_prefers_configured_template(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
-            template = root / "Tesserino Disabili Guida.doc"
+            template = root / "modello_personalizzato.doc"
             template.write_text("template", encoding="utf-8")
 
             self.assertEqual(resolve_authorization_template(template, root), template)

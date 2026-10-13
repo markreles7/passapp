@@ -90,6 +90,29 @@ con l'ambiente `.venv` preparato, esegui dalla cartella del progetto:
 Chiudi PassApp ed esegui `INSTALLA_CHATGPT.bat`. L'installatore crea una copia della versione
 precedente, aggiorna l'eseguibile abituale e conserva dati, configurazione e modelli di documento.
 
+## Autorizzazioni Word Pass Invalidi
+In `Pass Invalidi`, seleziona l'anno e premi `Nuovo`. Oltre ai dati del registro,
+compila sesso, luogo di nascita, comune di residenza e protocollo della richiesta.
+Lascia selezionato `Crea autorizzazione Word dopo Salva modifiche`: il Word viene
+generato dopo il salvataggio riuscito dell'Excel, nella cartella autorizzazioni configurata.
+Il nome segue `COGNOME Nome Autoriz. disabili n. NUMERO ANNO.doc`, con l'anno del rilascio.
+La data del protocollo, quella del rilascio e quella del documento sono distinte;
+la scadenza coincide con il dato scelto nel registro.
+
+Il modello riutilizzabile e `templates/autorizzazione_pass_invalidi.doc`, derivato
+dal facsimile fornito. La compilazione sostituisce solo i dieci campi variabili,
+conservando testo, firma e carta intestata. Per questo documento non occorre
+ChatGPT: i valori provengono direttamente dai dati immessi. Serve Microsoft Word Desktop.
+Per un nominativo gia registrato usa `Crea autorizzazione`, completa i dati mancanti
+e poi `Apri autorizzazione`. I dati del registro si correggono con `Modifica` e `Salva modifiche`.
+
+I campi che non hanno una colonna nell'Excel vengono conservati in
+`dati_autorizzazioni_pass.json`, accanto al registro, condiviso tra gli operatori.
+In Configurazione puoi indicare un percorso alternativo tramite `Archivio dati autorizzazioni`.
+I documenti gia esistenti non vengono sovrascritti dalla creazione automatica;
+la creazione manuale richiede conferma e conserva una copia `.bak` del precedente.
+Se Word fallisce, l'Excel rimane salvato: riprova con `Crea autorizzazione`.
+
 ## Problemi comuni
 **"Nessun file trovato"** -> verifica che il percorso di rete configurato in `data/config.json` sia disponibile.
 

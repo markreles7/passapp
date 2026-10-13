@@ -36,6 +36,7 @@ CONFIG_FIELDS = (
     ("paths.pass_invalidi_pattern", "Pattern file Pass Invalidi", "text"),
     ("paths.pass_invalidi_docs_folder", "Cartella documenti Pass Invalidi", "dir"),
     ("paths.pass_invalidi_authorization_template", "Modello autorizzazione Pass", "file"),
+    ("paths.pass_invalidi_details_file", "Archivio dati autorizzazioni (vuoto = cartella registro)", "file"),
     ("paths.accertamenti_anagrafici_file", "Archivio Accertamenti Anagrafici", "file"),
     ("paths.accertamenti_anagrafici_excel", "Excel iniziale Accertamenti Anagrafici", "file"),
     ("paths.ospitalita_network_folder", "Cartella Ospitalita Stranieri", "dir"),

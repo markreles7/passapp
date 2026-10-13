@@ -195,3 +195,31 @@ class ChatGPTSignInWorker(QObject):
             self.failed.emit(str(exc))
         except Exception:
             self.failed.emit("Collegamento ChatGPT non riuscito. Riprova.")
+
+
+class PassAuthorizationWorker(QObject):
+    finished = Signal(object)
+
+    def __init__(self, template_path, docs_dir, records):
+        super().__init__()
+        self.template_path, self.docs_dir, self.records = template_path, docs_dir, records
+
+    @Slot()
+    def run(self):
+        from core.audit import log_audit_event
+        from core.pass_invalidi_authorizations import (
+            authorization_payload_for_record, build_authorization_output_path, generate_authorization_doc_with_word,
+        )
+        created, errors = [], []
+        for record in self.records:
+            try:
+                payload = authorization_payload_for_record(record)
+                path = build_authorization_output_path(self.docs_dir, self.template_path,
+                    cognome=payload["cognome"], nome=payload["nome"], numero=payload["auth_number"], year=payload["year"])
+                generate_authorization_doc_with_word(self.template_path, path, payload)
+                created.append(str(path))
+                log_audit_event("pass_invalidi", "authorization_create", "document", str(payload["auth_number"]),
+                                "Autorizzazione Word creata dal registro Excel salvato", extra={"path": str(path)})
+            except Exception as exc:
+                errors.append(f"N. {record.get('numero', '?')}: {exc}")
+        self.finished.emit({"created": created, "errors": errors})

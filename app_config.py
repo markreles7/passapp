@@ -66,6 +66,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "logo_path": "assets/logo.jpg",
         "pass_invalidi_network_folder": r"R:\Polizia_locale\INVALIDI",
         "pass_invalidi_pattern": "REGISTRO INVALIDI COMUNE*.xlsx",
+        "pass_invalidi_authorization_template": "templates/autorizzazione_pass_invalidi.doc",
+        "pass_invalidi_details_file": "",
         "accertamenti_anagrafici_file": "data/accertamenti_anagrafici.json",
         "accertamenti_anagrafici_excel": r"R:\Polizia_locale\ACCERTAMENTI ANAGRAFICI.xlsx",
         "ospitalita_network_folder": r"R:\Comune\COMUNICAZIONE OSPITALITA' STRANIERI",

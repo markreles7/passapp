@@ -13,9 +13,9 @@ foreach ($taskPath in @($releaseRoot, $targetRoot)) {
 if (-not (Test-Path -LiteralPath (Join-Path $releaseRoot 'PassAppQt.exe'))) {
     throw 'Versione ChatGPT non preparata: manca build\chatgpt-release\PassAppQt\PassAppQt.exe.'
 }
-$running = Get-CimInstance Win32_Process | Where-Object {
-    $_.ExecutablePath -and $_.ExecutablePath.Equals($targetExe, [System.StringComparison]::OrdinalIgnoreCase)
-}
+# The same network executable may be started through R: or its UNC path.
+# Block while any PassApp instance is open rather than compare path spellings.
+$running = Get-CimInstance Win32_Process -Filter "Name = 'PassAppQt.exe'"
 if ($running) {
     throw 'Chiudi prima PassApp, poi esegui nuovamente INSTALLA_CHATGPT.bat. Nessun file e stato sostituito.'
 }
@@ -50,6 +50,15 @@ foreach ($resourceName in @('data', 'templates', 'assets')) {
     }
 }
 Copy-Item -LiteralPath (Join-Path $releaseRoot 'PassAppQt.exe') -Destination $targetExe -Force
+$authorizationSource = Join-Path $releaseRoot '_internal\templates\autorizzazione_pass_invalidi.doc'
+$authorizationTarget = Join-Path $targetRoot 'templates\autorizzazione_pass_invalidi.doc'
+if (Test-Path -LiteralPath $authorizationSource) {
+    New-Item -ItemType Directory -Path (Split-Path $authorizationTarget) -Force | Out-Null
+    if (Test-Path -LiteralPath $authorizationTarget) {
+        Copy-Item -LiteralPath $authorizationTarget -Destination $backupRoot
+    }
+    Copy-Item -LiteralPath $authorizationSource -Destination $authorizationTarget -Force
+}
 Write-Host 'PassApp aggiornato con ChatGPT. Dati e percorsi conservati.'
 Write-Host ('Backup della versione precedente: ' + $backupRoot)
 Start-Process -FilePath $targetExe -WorkingDirectory $targetRoot -WindowStyle Hidden

@@ -5,7 +5,12 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets', 'assets'), ('templates', 'templates'), ('data\\config.json', 'data')],
+    # Bundle only reusable application templates, excluding personal examples.
+    datas=[('assets', 'assets'),
+           ('templates/autorizzazione_pass_invalidi.doc', 'templates'),
+           ('templates/fascicolo_fotografico.doc', 'templates'),
+           ('templates/verbale_sopralluogo.doc', 'templates'),
+           ('data\\config.json', 'data')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

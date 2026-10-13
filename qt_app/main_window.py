@@ -180,6 +180,11 @@ class MainWindow(QMainWindow):
 
 
     def closeEvent(self, event):
+        pass_page = self.pages.get("pass_invalidi")
+        if pass_page is not None and pass_page.authorization_thread is not None:
+            pass_page.status.setText("Attendi la creazione delle autorizzazioni Word prima di chiudere.")
+            event.ignore()
+            return
         configuration = self.pages.get("configurazione")
         if configuration is not None and configuration._health_thread is not None:
             worker = configuration._health_worker

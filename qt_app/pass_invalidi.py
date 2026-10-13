@@ -9,6 +9,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
+    QScrollArea,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -30,11 +32,11 @@ from PySide6.QtWidgets import (
 from core.audit import log_audit_event
 from core.backups import create_excel_backup
 from core.dates import format_date, giorni_rimanenti, parse_date
-from core.file_state import FileSnapshot, file_matches_snapshot
+from core.file_state import FileSnapshot, file_matches_snapshot, capture_file_snapshot
 from core.pass_invalidi_authorizations import (
     build_authorization_output_path,
     build_authorization_payload,
-    default_expiry,
+    authorization_payload_for_record,
     find_authorization_doc_for_record,
     generate_authorization_doc_with_word,
     resolve_authorization_template,
@@ -51,6 +53,7 @@ from core.pass_invalidi_excel import (
     write_pending_with_excel_com,
 )
 from core.workcopies import create_working_copy
+from core.pass_invalidi_details import details_path_for_config, enrich_records, load_details, save_details
 from core.pass_invalidi_service import (
     AUTH_CITY_DEFAULT,
     AUTH_DOCS_DIR,
@@ -61,7 +64,7 @@ from core.pass_invalidi_service import (
     logger,
 )
 from qt_app.widgets import page_header
-from qt_app.workers import PassInvalidiLoadWorker
+from qt_app.workers import PassInvalidiLoadWorker, PassAuthorizationWorker
 
 
 FILTERS = (
@@ -77,7 +80,7 @@ class PassInvalidiEditDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Modifica nominativo invalidi" if record else "Nuovo nominativo invalidi")
         self.setModal(True)
-        self.resize(520, 360)
+        self.resize(650, 760)
         self.result_record: dict[str, str] | None = None
         edit_record = record or {}
         cognome_default = str(edit_record.get("cognome", "")).strip()
@@ -109,7 +112,31 @@ class PassInvalidiEditDialog(QDialog):
         form.addRow("Rilascio", self.rilascio)
         form.addRow("Scadenza", self.scadenza)
         form.addRow("Note", self.note)
-        layout.addLayout(form)
+        self.sesso = QComboBox()
+        self.sesso.addItems(("", "M", "F"))
+        self.sesso.setCurrentText(str(edit_record.get("sesso", "")))
+        self.luogo_nascita = QLineEdit(str(edit_record.get("luogo_nascita", "")))
+        self.comune_residenza = QLineEdit(str(edit_record.get("comune_residenza", "Pegognaga")))
+        self.protocollo_numero = QLineEdit(str(edit_record.get("protocol_number", "")))
+        self.protocollo_data = QLineEdit(str(edit_record.get("protocol_date", "")))
+        self.data_documento = QLineEdit(str(edit_record.get("issue_date", datetime.date.today().strftime("%d/%m/%Y"))))
+        for field in (self.protocollo_data, self.data_documento):
+            field.setPlaceholderText("GG/MM/AAAA")
+        form.addRow("Sesso (M/F)", self.sesso)
+        form.addRow("Luogo nascita (con provincia)", self.luogo_nascita)
+        form.addRow("Comune di residenza", self.comune_residenza)
+        form.addRow("Protocollo della richiesta", self.protocollo_numero)
+        form.addRow("Data protocollo della richiesta", self.protocollo_data)
+        form.addRow("Data documento", self.data_documento)
+        self.crea_autorizzazione = QCheckBox("Crea autorizzazione Word dopo Salva modifiche")
+        self.crea_autorizzazione.setChecked(record is None or bool(edit_record.get("_create_authorization")))
+        form.addRow(self.crea_autorizzazione)
+        form_widget = QWidget()
+        form_widget.setLayout(form)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(form_widget)
+        layout.addWidget(scroll, 1)
 
         hint = QLabel("La scadenza viene proposta da rilascio e data nascita; puoi correggerla prima di salvare.")
         hint.setObjectName("Muted")
@@ -169,6 +196,16 @@ class PassInvalidiEditDialog(QDialog):
             if answer != QMessageBox.Yes:
                 return
 
+        if self.crea_autorizzazione.isChecked():
+            if not all((self.sesso.currentText(), self.luogo_nascita.text().strip(), self.comune_residenza.text().strip(), self.protocollo_numero.text().strip())):
+                QMessageBox.warning(self, "Dati autorizzazione incompleti", "Completa sesso, luogo di nascita, comune di residenza e protocollo.")
+                return
+            if parse_date(self.protocollo_data.text()) is None or parse_date(self.data_documento.text()) is None:
+                QMessageBox.warning(self, "Date autorizzazione non valide", "Inserisci data protocollo e data documento in formato GG/MM/AAAA.")
+                return
+            if data_scadenza < data_rilascio:
+                QMessageBox.warning(self, "Date non valide", "La scadenza precede il rilascio.")
+                return
         self.result_record = {
             "cognome": cognome,
             "nome_proprio": nome.strip(),
@@ -178,6 +215,13 @@ class PassInvalidiEditDialog(QDialog):
             "rilascio": data_rilascio.strftime("%d/%m/%Y"),
             "scadenza": data_scadenza.strftime("%d/%m/%Y"),
             "note": note,
+            "sesso": self.sesso.currentText(),
+            "luogo_nascita": self.luogo_nascita.text().strip(),
+            "comune_residenza": self.comune_residenza.text().strip(),
+            "protocol_number": self.protocollo_numero.text().strip(),
+            "protocol_date": self.protocollo_data.text().strip(),
+            "issue_date": self.data_documento.text().strip(),
+            "_create_authorization": self.crea_autorizzazione.isChecked(),
         }
         self.accept()
 
@@ -191,10 +235,11 @@ class PassInvalidiAuthorizationDialog(QDialog):
         self.payload_input: dict[str, object] | None = None
 
         cognome_default, nome_default = split_cognome_nome(record.get("nome", ""))
-        protocol_date_default = parse_date(record.get("rilascio")) or datetime.date.today()
-        birth_default = parse_date(record.get("nato_il"))
-        expiry_fallback = parse_date(record.get("scadenza")) or protocol_date_default
-        expiry_default = default_expiry(protocol_date_default, birth_default, expiry_fallback)
+        cognome_default = str(record.get("cognome") or cognome_default)
+        nome_default = str(record.get("nome_proprio") or nome_default)
+        release_date_default = parse_date(record.get("rilascio")) or datetime.date.today()
+        protocol_date_default = parse_date(record.get("protocol_date")) or release_date_default
+        expiry_default = parse_date(record.get("scadenza")) or release_date_default
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
@@ -203,23 +248,32 @@ class PassInvalidiAuthorizationDialog(QDialog):
         form = QFormLayout()
         form.setHorizontalSpacing(14)
         form.setVerticalSpacing(10)
-        self.protocollo_numero = QLineEdit()
+        self.protocollo_numero = QLineEdit(str(record.get("protocol_number", "")))
         self.protocollo_data = QLineEdit(protocol_date_default.strftime("%d/%m/%Y"))
         self.sesso = QComboBox()
-        self.sesso.addItems(("F", "M"))
+        self.sesso.addItems(("", "M", "F"))
+        self.sesso.setCurrentText(str(record.get("sesso", "")))
         self.cognome = QLineEdit(cognome_default)
         self.nome = QLineEdit(nome_default)
-        self.luogo_nascita = QLineEdit()
+        self.luogo_nascita = QLineEdit(str(record.get("luogo_nascita", "")))
         self.data_nascita = QLineEdit(format_date(record.get("nato_il", "")) if record.get("nato_il") else "")
-        self.comune_residenza = QLineEdit("Pegognaga")
+        self.comune_residenza = QLineEdit(str(record.get("comune_residenza", "Pegognaga")))
         self.indirizzo_residenza = QLineEdit(str(record.get("indirizzo", "")).strip())
         self.data_scadenza = QLineEdit(expiry_default.strftime("%d/%m/%Y"))
         self.comune_emissione = QLineEdit(AUTH_CITY_DEFAULT)
+        self.data_rilascio = QLineEdit(release_date_default.strftime("%d/%m/%Y"))
+        self.data_documento = QLineEdit(str(record.get("issue_date") or datetime.date.today().strftime("%d/%m/%Y")))
+        for widget in (self.cognome, self.nome, self.data_nascita, self.indirizzo_residenza,
+                       self.data_rilascio, self.data_scadenza, self.comune_emissione):
+            widget.setReadOnly(True)
+            widget.setToolTip("Per modificare i dati del registro usa Modifica e Salva modifiche.")
         for widget in (self.protocollo_data, self.data_nascita, self.data_scadenza):
             widget.setPlaceholderText("GG/MM/AAAA")
 
         form.addRow("Numero protocollo", self.protocollo_numero)
         form.addRow("Data protocollo", self.protocollo_data)
+        form.addRow("Data rilascio", self.data_rilascio)
+        form.addRow("Data documento", self.data_documento)
         form.addRow("Sesso", self.sesso)
         form.addRow("Cognome", self.cognome)
         form.addRow("Nome", self.nome)
@@ -238,15 +292,7 @@ class PassInvalidiAuthorizationDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        self.protocollo_data.textChanged.connect(self._refresh_expiry)
-        self.data_nascita.textChanged.connect(self._refresh_expiry)
-
-    def _refresh_expiry(self) -> None:
-        protocol_date = parse_date(self.protocollo_data.text().strip())
-        birth_date = parse_date(self.data_nascita.text().strip())
-        if protocol_date is None or birth_date is None:
-            return
-        self.data_scadenza.setText(compute_authorization_expiry(protocol_date, birth_date).strftime("%d/%m/%Y"))
+        # Use the expiry chosen in the Excel register; a protocol date must not change it.
 
     def _accept(self) -> None:
         protocol_number = self.protocollo_numero.text().strip()
@@ -282,6 +328,11 @@ class PassInvalidiAuthorizationDialog(QDialog):
             QMessageBox.warning(self, "Data non valida", "Data di scadenza non valida.")
             return
 
+        release_date = parse_date(self.data_rilascio.text())
+        issue_date = parse_date(self.data_documento.text())
+        if not self.sesso.currentText() or release_date is None or issue_date is None:
+            QMessageBox.warning(self, "Dati incompleti", "Seleziona il sesso e completa data rilascio e data documento.")
+            return
         self.payload_input = {
             "protocol_number": protocol_number,
             "protocol_date": protocol_date,
@@ -294,6 +345,8 @@ class PassInvalidiAuthorizationDialog(QDialog):
             "indirizzo_residenza": indirizzo_residenza,
             "data_scadenza": data_scadenza,
             "comune_emissione": comune_emissione,
+            "release_date": release_date,
+            "issue_date": issue_date,
         }
         self.accept()
 
@@ -314,6 +367,8 @@ class PassInvalidiPage(QWidget):
         self.last_year_value = "Tutti"
         self.thread: QThread | None = None
         self.worker: PassInvalidiLoadWorker | None = None
+        self.authorization_thread: QThread | None = None
+        self.authorization_worker: PassAuthorizationWorker | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -430,6 +485,11 @@ class PassInvalidiPage(QWidget):
         self.thread.start()
 
     def _load_done(self, records, files, errors) -> None:
+        errors = list(errors)
+        try:
+            enrich_records(records, details_path_for_config(self.config))
+        except RuntimeError as exc:
+            errors.append(str(exc))
         self.all_records_loaded = list(records)
         self.files = list(files)
         self.pending_records = []
@@ -603,7 +663,7 @@ class PassInvalidiPage(QWidget):
         self.delete_button.setEnabled(can_edit and has_selection)
         self.save_button.setEnabled(bool(self.pending_records))
         self.open_auth_button.setEnabled(has_selection)
-        self.create_auth_button.setEnabled(has_selection)
+        self.create_auth_button.setEnabled(has_selection and self.authorization_thread is None)
 
     def _confirm_pending_before_context_switch(self) -> bool:
         answer = QMessageBox.question(
@@ -773,6 +833,9 @@ class PassInvalidiPage(QWidget):
         QMessageBox.information(self, "Eliminazione registrata", "Record segnato per l'eliminazione. Usa Salva modifiche per aggiornare il file Excel.")
 
     def save_changes(self, trigger_reload: bool = True) -> bool:
+        if self.authorization_thread is not None:
+            QMessageBox.information(self, "Creazione in corso", "Attendi la creazione delle autorizzazioni Word.")
+            return False
         if not self.pending_records:
             QMessageBox.information(self, "Nessuna modifica", "Non ci sono modifiche da salvare.")
             return False
@@ -790,7 +853,13 @@ class PassInvalidiPage(QWidget):
                 "Il file originale e stato modificato dopo l'apertura della copia di lavoro. Ricarica i dati prima di salvare.",
             )
             return False
+        excel_saved = False
         try:
+            details_path = details_path_for_config(self.config)
+            load_details(details_path)
+            for pending in self.pending_records:
+                if pending.get("mode") != "delete_existing" and pending.get("_create_authorization"):
+                    authorization_payload_for_record(pending)
             if suffix == ".xlsx":
                 write_pending_to_xlsx(self.working_copy_file, self.pending_records)
             else:
@@ -798,6 +867,9 @@ class PassInvalidiPage(QWidget):
             create_excel_backup(self.primary_source_file, "pass_invalidi")
             log_audit_event("pass_invalidi", "backup", "excel", None, "Backup file originale Pass Invalidi creato da Qt")
             shutil.copy2(self.working_copy_file, self.primary_source_file)
+            excel_saved = True
+            self.source_file_snapshot = capture_file_snapshot(self.primary_source_file)
+            save_details(self.pending_records, details_path)
         except Exception as exc:
             logger.exception("Errore salvataggio modifiche pass invalidi Qt")
             log_audit_event(
@@ -809,13 +881,16 @@ class PassInvalidiPage(QWidget):
                 result="error",
                 error=str(exc),
             )
-            QMessageBox.critical(self, "Salvataggio non riuscito", f"Impossibile salvare le modifiche.\n\nDettagli:\n{exc}")
+            message = ("Excel aggiornato, ma i dati aggiuntivi dell'autorizzazione non sono stati salvati. Riprova Salva modifiche." if excel_saved else "Impossibile salvare le modifiche.")
+            QMessageBox.critical(self, "Salvataggio non riuscito", f"{message}\n\nDettagli:\n{exc}")
             return False
 
+        authorization_requests = [dict(item) for item in self.pending_records if item.get("mode") != "delete_existing" and item.get("_create_authorization")]
         saved_count = len(self.pending_records)
         for record in self.records:
             record.pop("_pending", None)
             record.pop("_deleted", None)
+            record.pop("_create_authorization", None)
         self.pending_records = []
         self._refresh_edit_buttons()
         log_audit_event(
@@ -826,13 +901,49 @@ class PassInvalidiPage(QWidget):
             "Salvate modifiche Pass Invalidi sul file originale da Qt",
             extra={"count": saved_count},
         )
-        QMessageBox.information(self, "Salvataggio completato", "Le modifiche sono state salvate sul file Excel.")
+        QMessageBox.information(self, "Salvataggio completato", "Le modifiche sono state salvate sul file Excel." + ("\nCreazione automatica delle autorizzazioni Word in corso." if authorization_requests else ""))
+        if authorization_requests:
+            self._start_authorizations(authorization_requests)
         if trigger_reload:
             self.refresh()
         else:
             self._refresh_stats()
             self.apply_filters()
         return True
+
+    def _start_authorizations(self, records: list[dict]) -> None:
+        from app_config import load_config
+        config = load_config(force_reload=True)
+        paths = config["paths"]
+        template = resolve_authorization_template(paths.get("pass_invalidi_authorization_template", AUTH_TEMPLATE_PATH), paths.get("pass_invalidi_docs_folder", AUTH_DOCS_DIR))
+        if template is None:
+            QMessageBox.warning(self, "Excel salvato", "Modello autorizzazione non trovato. Configuralo e usa Crea autorizzazione.")
+            return
+        thread = QThread(self)
+        worker = PassAuthorizationWorker(template, Path(paths.get("pass_invalidi_docs_folder") or AUTH_DOCS_DIR), records)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._authorizations_ready)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._authorizations_finished)
+        self.authorization_thread, self.authorization_worker = thread, worker
+        self.status.setText("Excel salvato. Creazione autorizzazioni Word in corso...")
+        self._refresh_edit_buttons()
+        thread.start()
+
+    def _authorizations_ready(self, result: dict) -> None:
+        created, errors = result["created"], result["errors"]
+        self.status.setText(f"Excel salvato. Autorizzazioni create: {len(created)}. Errori: {len(errors)}.")
+        if errors:
+            QMessageBox.warning(self, "Registro salvato", "Excel e dati autorizzazione salvati. Alcuni documenti non sono stati creati; puoi riprovare con Crea autorizzazione.\n\n" + "\n".join(errors))
+        else:
+            QMessageBox.information(self, "Autorizzazioni create", "Documenti Word creati:\n\n" + "\n".join(created))
+
+    def _authorizations_finished(self):
+        self.authorization_thread = self.authorization_worker = None
+        self._refresh_edit_buttons()
 
     def open_authorization(self) -> None:
         record = self._selected_record()
@@ -853,9 +964,14 @@ class PassInvalidiPage(QWidget):
             QMessageBox.critical(self, "Apertura non riuscita", f"Impossibile aprire il file.\n\nDettagli:\n{exc}")
 
     def create_authorization(self) -> None:
+        if self.authorization_thread is not None:
+            return
         record = self._selected_record()
         if record is None:
             QMessageBox.information(self, "Nessuna selezione", "Seleziona un nominativo.")
+            return
+        if record.get("_pending"):
+            QMessageBox.information(self, "Registro non salvato", "Prima usa Salva modifiche: l'autorizzazione deve corrispondere al registro Excel salvato.")
             return
         answer = QMessageBox.question(
             self,
@@ -909,7 +1025,7 @@ class PassInvalidiPage(QWidget):
                 return
 
         try:
-            generate_authorization_doc_with_word(template_path, output_path, payload)
+            generate_authorization_doc_with_word(template_path, output_path, payload, overwrite=output_path.exists())
         except Exception as exc:
             logger.exception("Errore creazione autorizzazione pass invalidi Qt")
             log_audit_event(
@@ -924,6 +1040,16 @@ class PassInvalidiPage(QWidget):
             QMessageBox.critical(self, "Creazione non riuscita", f"Impossibile creare il file .doc.\n\nDettagli:\n{exc}")
             return
 
+        record.update({"cognome": payload["cognome"], "nome_proprio": payload["nome"],
+                       "nome": compose_full_name(str(payload["cognome"]), str(payload["nome"])),
+                       "sesso": dialog.payload_input["sesso"], "nato_il": payload["birth_date"],
+                       "luogo_nascita": payload["birth_place"], "comune_residenza": payload["residence_city"],
+                       "protocol_number": payload["protocol_number"], "protocol_date": payload["protocol_date"],
+                       "issue_date": payload["issue_date"]})
+        try:
+            save_details([record], details_path_for_config(self.config))
+        except (RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, "Documento creato", f"Documento creato, ma dati aggiuntivi non salvati: {exc}")
         log_audit_event(
             "pass_invalidi",
             "authorization_create",

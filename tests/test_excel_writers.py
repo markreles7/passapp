@@ -10,6 +10,7 @@ import openpyxl
 
 from core.ospitalita_excel import write_pending_with_excel_com as write_ospitalita_pending_with_excel_com
 from core.pass_invalidi_excel import write_pending_to_xlsx
+from core.pass_invalidi_service import carica_file
 
 
 def _date_value(value):
@@ -61,6 +62,48 @@ class TestExcelWriters(unittest.TestCase):
             self.assertEqual(ws_saved.cell(row=2, column=5).value, "slot riusato")
             self.assertEqual(ws_saved.cell(row=4, column=1).value, 3)
             self.assertEqual(ws_saved.cell(row=4, column=2).value, "BIANCHI LUISA - VIA MILANO 2")
+            saved.close()
+
+    def test_pass_invalidi_formula_numbers_survive_openpyxl_save_and_reload(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workbook_path = Path(tmp_dir) / "REGISTRO INVALIDI COMUNE 2026.xlsx"
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.append(["N", "GENERALITA", "RILASCIO", "SCADENZA", "NOTE"])
+            ws.append([1, "ROSSI MARIO - VIA ROMA 1", "01/01/2026", "01/01/2031", "prima"])
+            ws.append(["=A2+1", "BIANCHI LUISA - VIA MILANO 2", "02/01/2026", "02/01/2031", "seconda"])
+            wb.save(workbook_path)
+            wb.close()
+
+            # A workbook freshly saved by openpyxl has no cached value for A3.
+            cached = openpyxl.load_workbook(workbook_path, data_only=True)
+            self.assertIsNone(cached.active.cell(row=3, column=1).value)
+            cached.close()
+
+            records, error = carica_file(workbook_path)
+            self.assertIsNone(error)
+            self.assertEqual([record["numero"] for record in records], [1, 2])
+
+            write_pending_to_xlsx(
+                workbook_path,
+                [
+                    {
+                        "numero": 2,
+                        "cognome": "BIANCHI",
+                        "nome_proprio": "Luisa",
+                        "indirizzo": "Via Milano 9",
+                        "rilascio": "02/01/2026",
+                        "scadenza": "02/01/2031",
+                        "note": "aggiornata",
+                        "mode": "update_existing",
+                    }
+                ],
+            )
+
+            saved = openpyxl.load_workbook(workbook_path, data_only=False)
+            self.assertEqual(saved.active.cell(row=3, column=1).value, "=A2+1")
+            self.assertEqual(saved.active.cell(row=3, column=2).value, "BIANCHI LUISA - VIA MILANO 9")
+            self.assertEqual(saved.active.max_row, 3)
             saved.close()
 
     def test_ospitalita_excel_com_writer_builds_expected_payload(self):

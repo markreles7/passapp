@@ -58,6 +58,38 @@ def record_numero_int(record: dict) -> int | None:
         return None
 
 
+_ROW_NUMBER_FORMULA = re.compile(
+    r"^\s*=\s*\+?\s*\$?A\$?(\d+)\s*\+\s*(\d+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def workbook_row_numbers(worksheet) -> dict[int, int]:
+    """Return the concession number for each worksheet row.
+
+    The municipal registers normally store only the first number as a value;
+    the following cells contain formulas such as ``=A7+1``.  After an xlsx
+    file is saved by openpyxl, Excel's cached results are no longer available,
+    so reading with ``data_only=True`` makes those cells look empty.  Resolve
+    the simple progression formulas from the formula text instead.
+    """
+    numbers: dict[int, int] = {}
+    for row_idx in range(1, worksheet.max_row + 1):
+        value = worksheet.cell(row=row_idx, column=1).value
+        numero = _numero_da_cella(value)
+        if numero is None and isinstance(value, str):
+            match = _ROW_NUMBER_FORMULA.match(value)
+            if match:
+                referenced_row = int(match.group(1))
+                increment = int(match.group(2))
+                referenced_numero = numbers.get(referenced_row)
+                if referenced_numero is not None:
+                    numero = referenced_numero + increment
+        if numero is not None:
+            numbers[row_idx] = numero
+    return numbers
+
+
 def is_empty_slot(record: dict) -> bool:
     fields = (
         record.get("nome", ""),
@@ -120,23 +152,14 @@ def write_pending_to_xlsx(workbook_path: Path, pending_records: list[dict]) -> N
     wb = openpyxl.load_workbook(workbook_path)
     ws = wb.active
 
-    wb_values = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
-    ws_values = wb_values.active
     row_by_numero: dict[int, int] = {}
     empty_rows: list[int] = []
     next_append_row = ws.max_row + 1
-    for row_idx in range(1, ws_values.max_row + 1):
-        num_val = ws_values.cell(row=row_idx, column=1).value
-        text_val = ws_values.cell(row=row_idx, column=2).value
-        try:
-            numero = int(float(str(num_val).strip()))
-        except (TypeError, ValueError):
-            numero = None
-        if numero is not None:
-            row_by_numero[numero] = row_idx
-            if text_val is None or str(text_val).strip() == "":
-                empty_rows.append(row_idx)
-    wb_values.close()
+    for row_idx, numero in workbook_row_numbers(ws).items():
+        text_val = ws.cell(row=row_idx, column=2).value
+        row_by_numero[numero] = row_idx
+        if text_val is None or str(text_val).strip() == "":
+            empty_rows.append(row_idx)
 
     for record in pending_records:
         numero = record_numero_int(record)
@@ -198,16 +221,13 @@ def _numero_da_cella(value) -> int | None:
 
 
 def write_pending_with_excel_com(workbook_path: Path, pending_records: list[dict]) -> None:
-    wb_values = openpyxl.load_workbook(workbook_path, read_only=True, data_only=True)
+    wb_values = openpyxl.load_workbook(workbook_path, read_only=True, data_only=False)
     ws_values = wb_values.active
 
     row_by_numero: dict[int, int] = {}
     empty_rows: list[int] = []
     last_numbered_row = 1
-    for row_idx in range(1, ws_values.max_row + 1):
-        numero = _numero_da_cella(ws_values.cell(row=row_idx, column=1).value)
-        if numero is None:
-            continue
+    for row_idx, numero in workbook_row_numbers(ws_values).items():
         if numero not in row_by_numero:
             row_by_numero[numero] = row_idx
         if row_idx > last_numbered_row:

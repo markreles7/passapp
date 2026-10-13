@@ -10,6 +10,7 @@ import openpyxl
 from app_config import load_config, resolve_path
 from core.dates import parse_date
 from core.logging_utils import setup_module_logger
+from core.pass_invalidi_excel import workbook_row_numbers
 
 APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
@@ -43,8 +44,12 @@ def get_status(val):
 def carica_file(path):
     records = []
     try:
-        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        # Read formulas as well as values: progressive numbers in the official
+        # registers are formulas and their cached results disappear after an
+        # openpyxl save.
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=False)
         ws = wb.active
+        row_numbers = workbook_row_numbers(ws)
         rows = list(ws.iter_rows(values_only=True))
         wb.close()
     except Exception as exc:
@@ -52,12 +57,11 @@ def carica_file(path):
         return records, str(exc)
 
     source_name = os.path.basename(path)
-    for row in rows:
-        if not row or row[0] is None:
+    for row_idx, row in enumerate(rows, start=1):
+        if not row:
             continue
-        try:
-            num = int(float(str(row[0]).strip()))
-        except (ValueError, TypeError):
+        num = row_numbers.get(row_idx)
+        if num is None:
             continue
 
         generalita = str(row[1]).strip() if len(row) > 1 and row[1] else ""
