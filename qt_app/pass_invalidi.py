@@ -1025,7 +1025,7 @@ class PassInvalidiPage(QWidget):
                 return
 
         try:
-            generate_authorization_doc_with_word(template_path, output_path, payload, overwrite=output_path.exists())
+            generate_authorization_doc_with_word(template_path, output_path, payload, overwrite=output_path.exists(), use_chatgpt=True)
         except Exception as exc:
             logger.exception("Errore creazione autorizzazione pass invalidi Qt")
             log_audit_event(

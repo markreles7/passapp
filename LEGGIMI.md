@@ -12,7 +12,7 @@ PassApp e ora un'app unica basata su Qt/PySide6. Il codice storico e stato archi
 - Pass Invalidi
 - Segnalazioni Cittadini
 - Sopralluoghi
-- Assistente Operativo (ChatGPT)
+- Assistente Operativo (disabilitato)
 - Accertamenti anagrafici
 - Ospitalita Stranieri
 - Report mensile
@@ -52,14 +52,18 @@ PassApp e ora un'app unica basata su Qt/PySide6. Il codice storico e stato archi
 - Il salvataggio modifiche su file `.xls` usa Microsoft Excel Desktop tramite automazione COM.
 - I log applicativi vengono salvati in `data/passapp.log`.
 - Le funzioni IA usano esclusivamente ChatGPT con accesso OAuth ufficiale; non richiedono API key.
-- Ogni comando dell'Assistente Operativo viene mostrato in anteprima e non modifica dati senza conferma dell'operatore.
+- La sezione Assistente Operativo e disabilitata e non avvia richieste o azioni.
 
 ## Collegare ChatGPT
 1. Apri `Configurazione` e premi `Continue with ChatGPT`.
 2. Nel browser ufficiale accedi al tuo account e autorizza PassApp a usare il piano ChatGPT.
 3. Premi `Verifica connessione ChatGPT` per caricare i modelli disponibili per l'account.
 4. Scegli un modello (oppure lascia la selezione automatica) e salva la configurazione.
-5. Usa l'Assistente Operativo e la generazione delle bozze nei moduli Segnalazioni e Sopralluoghi.
+5. Lascia attiva `Bozze documenti con ChatGPT` per Pass Invalidi, Segnalazioni e Sopralluoghi.
+
+ChatGPT viene chiamato durante `Crea autorizzazione` (anche dopo `Salva modifiche`),
+`Esporta PDF` in Segnalazioni e `Genera verbale PDF` in Sopralluoghi.
+La compilazione o il semplice salvataggio di una segnalazione/sopralluogo non invia una richiesta IA.
 
 L'integrazione segue https://developers.openai.com/siwc/token-sharing-open-source per app locali.
 La disponibilita dipende dall'idoneita dell'account e dell'app. L'utilizzo consuma i limiti condivisi
@@ -101,8 +105,10 @@ la scadenza coincide con il dato scelto nel registro.
 
 Il modello riutilizzabile e `templates/autorizzazione_pass_invalidi.doc`, derivato
 dal facsimile fornito. La compilazione sostituisce solo i dieci campi variabili,
-conservando testo, firma e carta intestata. Per questo documento non occorre
-ChatGPT: i valori provengono direttamente dai dati immessi. Serve Microsoft Word Desktop.
+conservando testo, firma e carta intestata. ChatGPT compila i campi variabili;
+PassApp verifica che ogni valore corrisponda esattamente ai dati immessi prima di creare il Word.
+Una risposta incompleta o discordante impedisce la creazione del documento.
+Serve Microsoft Word Desktop. Disattivando le bozze ChatGPT si usa la compilazione standard.
 Per un nominativo gia registrato usa `Crea autorizzazione`, completa i dati mancanti
 e poi `Apri autorizzazione`. I dati del registro si correggono con `Modifica` e `Salva modifiche`.
 

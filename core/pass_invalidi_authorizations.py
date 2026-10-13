@@ -253,7 +253,7 @@ try {
 """
 
 
-def generate_authorization_doc_with_word(template_path: Path, output_path: Path, payload: dict, *, overwrite: bool = False) -> Path:
+def generate_authorization_doc_with_word(template_path: Path, output_path: Path, payload: dict, *, overwrite: bool = False, use_chatgpt: bool = False) -> Path:
     template_path, output_path = Path(template_path), Path(output_path)
     if not template_path.is_file():
         raise FileNotFoundError(f"Modello non trovato: {template_path}")
@@ -263,7 +263,11 @@ def generate_authorization_doc_with_word(template_path: Path, output_path: Path,
         raise FileExistsError(f"Autorizzazione gia esistente: {output_path.name}. Usa Apri autorizzazione.")
     if output_path.suffix.lower() not in {".doc", ".docx"}:
         raise ValueError("Formato autorizzazione non supportato.")
-    replacements = authorization_replacements(payload)
+    if use_chatgpt:
+        from core.ai_documents import prepare_pass_invalidi_authorization
+        replacements = prepare_pass_invalidi_authorization(payload)
+    else:
+        replacements = authorization_replacements(payload)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="passapp_auth_") as tmp_dir:
         tmp_path = Path(tmp_dir)

@@ -58,6 +58,9 @@ class Sidebar(QFrame):
             button = QPushButton(f"{icon}   {label}")
             button.setObjectName("NavButton")
             button.setProperty("active", "false")
+            if key == "assistente_operativo":
+                button.setEnabled(False)
+                button.setToolTip("Assistente Operativo disabilitato.")
             button.clicked.connect(lambda _checked=False, item_key=key: self.selected.emit(item_key))
             layout.addWidget(button)
             self.buttons[key] = button

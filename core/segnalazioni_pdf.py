@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime as dt
 import json
 import re
 import subprocess
@@ -46,7 +45,7 @@ def build_pdf_payload(seg: Segnalazione) -> dict[str, str]:
         "ricevente": value_or_dash(seg.ricevente),
         "descrizione": value_or_dash(seg.descrizione_segnalazione),
         "agente": value_or_dash(seg.agente_verificatore),
-        "data_accertamento": value_or_dash(seg.data_verifica or dt.date.today().strftime("%d/%m/%Y")),
+        "data_accertamento": value_or_dash(seg.data_verifica),
         "verifica": value_or_dash(seg.verifica_effettuata),
         "riferimento": f"{seg.numero_progressivo}/{value_or_dash(anno)}",
     }

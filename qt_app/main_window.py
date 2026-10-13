@@ -10,7 +10,6 @@ from qt_app.configuration import ConfigurationPage
 from qt_app.contacts import ContactsPage
 from qt_app.dashboard import DashboardPage
 from qt_app.ospitalita import OspitalitaPage
-from qt_app.operational_assistant import OperationalAssistantPage
 from qt_app.pass_invalidi import PassInvalidiPage
 from qt_app.report import ReportPage
 from qt_app.segnalazioni import SegnalazioniPage
@@ -59,11 +58,7 @@ class MainWindow(QMainWindow):
         segnalazioni_page.request_sopralluoghi.connect(self.open_sopralluoghi_for_segnalazione)
         self._add_page("segnalazioni", segnalazioni_page)
         self._add_page("sopralluoghi", sopralluoghi_page)
-        assistant_page = OperationalAssistantPage(config, self.current_user)
-        assistant_page.open_sopralluogo_requested.connect(
-            lambda report_id: self.open_sopralluoghi_for_segnalazione(report_id, False, "")
-        )
-        self._add_page("assistente_operativo", assistant_page)
+        self._add_placeholder("assistente_operativo", "Assistente Operativo", "Sezione disabilitata.")
         self._add_page("accertamenti_anagrafici", AccertamentiAnagraficiPage(config))
         self._add_page("ospitalita", OspitalitaPage(config))
         self._add_page("report", ReportPage(config))
@@ -92,6 +87,8 @@ class MainWindow(QMainWindow):
         self._add_page(key, PlaceholderPage(title, subtitle))
 
     def show_page(self, key: str) -> None:
+        if key == "assistente_operativo":
+            return
         if key in {"configurazione", "diagnostica"} and not self._can_access_admin_pages():
             QMessageBox.warning(
                 self,
@@ -191,11 +188,6 @@ class MainWindow(QMainWindow):
             if hasattr(worker, "cancelled"):
                 worker.cancelled.set()
             configuration.status.setText("Attendi la conclusione del collegamento ChatGPT prima di chiudere.")
-            event.ignore()
-            return
-        assistant = self.pages.get("assistente_operativo")
-        if assistant is not None and assistant.thread is not None:
-            assistant.status.setText("Attendi la conclusione della richiesta ChatGPT prima di chiudere.")
             event.ignore()
             return
         super().closeEvent(event)

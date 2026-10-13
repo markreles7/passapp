@@ -216,7 +216,7 @@ class PassAuthorizationWorker(QObject):
                 payload = authorization_payload_for_record(record)
                 path = build_authorization_output_path(self.docs_dir, self.template_path,
                     cognome=payload["cognome"], nome=payload["nome"], numero=payload["auth_number"], year=payload["year"])
-                generate_authorization_doc_with_word(self.template_path, path, payload)
+                generate_authorization_doc_with_word(self.template_path, path, payload, use_chatgpt=True)
                 created.append(str(path))
                 log_audit_event("pass_invalidi", "authorization_create", "document", str(payload["auth_number"]),
                                 "Autorizzazione Word creata dal registro Excel salvato", extra={"path": str(path)})
