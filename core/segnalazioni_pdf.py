@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from core.gemini_verbale import prepare_segnalazione_pdf
+from core.ai_documents import prepare_segnalazione_pdf
 from core.segnalazioni import MODALITA_OPZIONI, Segnalazione, repair_mojibake
 
 
@@ -54,11 +54,9 @@ def build_pdf_payload(seg: Segnalazione) -> dict[str, str]:
 
 def ai_source_label(source: str) -> str:
     normalized = str(source or "").strip().lower()
-    if normalized == "openrouter":
-        return "Testo descrittivo generato con AI tramite OpenRouter."
-    if normalized == "gemini":
-        return "Testo descrittivo generato con AI tramite Gemini."
-    return "Testo descrittivo generato localmente da PassApp (fallback senza AI esterna)."
+    if normalized == "chatgpt":
+        return "Bozza descrittiva generata con ChatGPT; richiede revisione dell'operatore."
+    return "Testo descrittivo generato localmente da PassApp senza motore IA."
 
 
 def render_segnalazione_pdf(

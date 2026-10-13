@@ -72,20 +72,20 @@ class TestSegnalazionePdfExportOptions(unittest.TestCase):
         self.assertIn("ALLEGATO INTERNO - DATI ORIGINALI REGISTRATI", script)
         self.assertIn("ATTIVITA' DI ACCERTAMENTO", script)
 
-    def test_pdf_export_includes_ai_source_label_for_openrouter(self):
-        captured = self._render_and_capture(source="openrouter")
+    def test_pdf_export_includes_ai_source_label_for_chatgpt(self):
+        captured = self._render_and_capture(source="chatgpt")
 
-        self.assertEqual(captured["payload"]["testo_generato_da"], "openrouter")
+        self.assertEqual(captured["payload"]["testo_generato_da"], "chatgpt")
         self.assertEqual(
             captured["payload"]["testo_generato_label"],
-            "Testo descrittivo generato con AI tramite OpenRouter.",
+            "Bozza descrittiva generata con ChatGPT; richiede revisione dell'operatore.",
         )
         self.assertIn("$testoGeneratoLabel = [string]$payload.testo_generato_label", str(captured["script"]))
 
-    def test_ai_source_label_reports_local_fallback(self):
+    def test_ai_source_label_reports_local_generation_without_ai(self):
         self.assertEqual(
             ai_source_label("locale"),
-            "Testo descrittivo generato localmente da PassApp (fallback senza AI esterna).",
+            "Testo descrittivo generato localmente da PassApp senza motore IA.",
         )
 
 

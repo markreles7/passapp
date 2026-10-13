@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QThread, Qt
+from services.ai.chatgpt_auth import ChatGPTAuth
+from services.ai.exceptions import AIServiceError
+from qt_app.workers import ChatGPTSignInWorker
 from PySide6.QtWidgets import (
-    QApplication,
     QFileDialog,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHeaderView,
@@ -24,7 +27,7 @@ from PySide6.QtWidgets import (
 from app_config import CONFIG_PATH, load_config, save_config
 from core.auth import ADMIN_USERNAME, ROLE_ADMIN, AuthError, AuthenticatedUser, create_user, list_users
 from core.diagnostics import ERROR, OK, WARNING, run_diagnostics
-from core.gemini_verbale import check_openrouter_connection
+from qt_app.workers import ChatGPTHealthWorker
 from qt_app.widgets import page_header
 
 
@@ -43,11 +46,9 @@ CONFIG_FIELDS = (
     ("paths.fascicoli_segnalazioni_dir", "Cartella fascicoli segnalazioni", "dir"),
     ("paths.report_mensili_dir", "Cartella report mensili", "dir"),
     ("paths.logo_path", "Logo applicazione", "file"),
-    ("ai.provider", "Provider AI (gemini/openrouter)", "text"),
-    ("ai.gemini_api_key", "Chiave API Gemini", "secret"),
-    ("ai.gemini_model", "Modello Gemini", "text"),
-    ("ai.openrouter_api_key", "Chiave API OpenRouter", "secret"),
-    ("ai.openrouter_model", "Modello OpenRouter", "text"),
+    ("ai.model", "Modello ChatGPT", "text"),
+    ("ai.timeout", "Timeout (secondi)", "text"),
+    ("ai.documents_enabled", "Bozze documenti con ChatGPT (true/false)", "text"),
 )
 
 
@@ -65,7 +66,9 @@ class ConfigurationPage(QWidget):
         self.current_user = current_user or (
             AuthenticatedUser(ADMIN_USERNAME, ROLE_ADMIN) if authentication_enabled else None
         )
-        self.fields: dict[str, QLineEdit] = {}
+        self.fields: dict[str, QLineEdit | QComboBox] = {}
+        self._health_thread: QThread | None = None
+        self._health_worker: ChatGPTHealthWorker | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -100,18 +103,33 @@ class ConfigurationPage(QWidget):
         scroll.setWidget(scroll_content)
         form_card_layout.addWidget(scroll)
 
+        self.account_status = QLabel("")
+        self.account_status.setWordWrap(True)
+        form_card_layout.addWidget(self.account_status)
+        account_row = QHBoxLayout()
+        self.sign_in_button = QPushButton("Continue with ChatGPT")
+        self.sign_in_button.clicked.connect(self.sign_in_chatgpt)
+        self.disconnect_button = QPushButton("Scollega ChatGPT")
+        self.disconnect_button.clicked.connect(self.disconnect_chatgpt)
+        usage_button = QPushButton("Gestisci utilizzo")
+        usage_button.clicked.connect(self.manage_chatgpt_usage)
+        for button in (self.sign_in_button, self.disconnect_button, usage_button):
+            account_row.addWidget(button)
+        form_card_layout.addLayout(account_row)
+        self._refresh_chatgpt_account()
         self.status = QLabel("")
         self.status.setObjectName("Muted")
         buttons_row = QHBoxLayout()
         buttons_row.addStretch(1)
-        test_openrouter_button = QPushButton("Test OpenRouter")
-        test_openrouter_button.setProperty("secondary", "true")
-        test_openrouter_button.setEnabled(self._can_manage_configuration())
-        test_openrouter_button.clicked.connect(self.test_openrouter)
+        self.test_chatgpt_button = QPushButton("Verifica connessione ChatGPT")
+        self.test_chatgpt_button.setProperty("secondary", "true")
+        self.test_chatgpt_button.setEnabled(self._can_manage_configuration())
+        self.test_chatgpt_button.clicked.connect(self.test_chatgpt)
         save_button = QPushButton("Salva configurazione")
         save_button.setEnabled(self._can_manage_configuration())
         save_button.clicked.connect(self.save)
-        buttons_row.addWidget(test_openrouter_button)
+        self._set_chatgpt_busy(False)
+        buttons_row.addWidget(self.test_chatgpt_button)
         buttons_row.addWidget(save_button)
         form_card_layout.addLayout(buttons_row)
         form_card_layout.addWidget(self.status)
@@ -157,13 +175,15 @@ class ConfigurationPage(QWidget):
     ) -> None:
         label_widget = QLabel(label)
         label_widget.setObjectName("Muted")
-        field = QLineEdit(self._get_value(config, key))
-        if browse_type == "secret":
-            field.setEchoMode(QLineEdit.Password)
-            if key == "ai.openrouter_api_key":
-                field.setPlaceholderText("Inserisci o aggiorna la chiave API OpenRouter")
-            else:
-                field.setPlaceholderText("Inserisci o aggiorna la chiave API Gemini")
+        if key == "ai.model":
+            field = QComboBox()
+            field.addItem("Automatico dal tuo account", "")
+            current = self._get_value(config, key)
+            if current:
+                field.addItem(current, current)
+                field.setCurrentIndex(1)
+        else:
+            field = QLineEdit(self._get_value(config, key))
         self.fields[key] = field
 
         grid.addWidget(label_widget, row, 0)
@@ -189,7 +209,11 @@ class ConfigurationPage(QWidget):
             QMessageBox.warning(self, "Accesso riservato", "Solo l'amministratore puo modificare la configurazione.")
             return
 
-        raw_config = self._config_from_fields(self._load_raw_config())
+        try:
+            raw_config = self._config_from_fields(self._load_raw_config())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Configurazione non valida", str(exc))
+            return
 
         try:
             save_config(raw_config)
@@ -201,29 +225,124 @@ class ConfigurationPage(QWidget):
         self.status.setText("Configurazione salvata. Riavvia PassApp per ricaricare tutti i moduli gia importati.")
         QMessageBox.information(self, "Configurazione salvata", "I percorsi sono stati salvati correttamente.")
 
-    def test_openrouter(self) -> None:
+    def test_chatgpt(self) -> None:
         if not self._can_manage_configuration():
-            QMessageBox.warning(self, "Accesso riservato", "Solo l'amministratore puo verificare OpenRouter.")
+            QMessageBox.warning(self, "Accesso riservato", "Solo l'amministratore puo verificare ChatGPT.")
             return
 
-        config = self._config_from_fields(self._load_raw_config())
-        ai_config = config.get("ai", {}) if isinstance(config, dict) else {}
-        self.status.setText("Test OpenRouter in corso...")
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        if self._health_thread is not None:
+            return
         try:
-            result = check_openrouter_connection(ai_config)
-        finally:
-            QApplication.restoreOverrideCursor()
-
-        if result.ok:
-            detail = f"{result.detail}\n\nModello: {result.model}"
-            self.status.setText("Test OpenRouter riuscito.")
-            QMessageBox.information(self, "OpenRouter configurato", detail)
+            config = self._config_from_fields(self._load_raw_config())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Configurazione non valida", str(exc))
             return
+        ai_config = config.get("ai", {}) if isinstance(config, dict) else {}
+        self.status.setText("Verifica ChatGPT in corso...")
+        self._set_chatgpt_busy(True)
+        thread = QThread(self)
+        worker = ChatGPTHealthWorker(ai_config)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._health_ready)
+        worker.failed.connect(self._health_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.finished.connect(lambda _result: worker.deleteLater())
+        worker.failed.connect(lambda _message: worker.deleteLater())
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._health_finished)
+        self._health_thread = thread
+        self._health_worker = worker
+        thread.start()
 
-        detail = f"{result.detail}\n\nModello: {result.model}"
-        self.status.setText("Test OpenRouter non riuscito.")
-        QMessageBox.warning(self, "OpenRouter non configurato", detail)
+    def _health_ready(self, result) -> None:
+        self._refresh_chatgpt_account()
+        field = self.fields["ai.model"]
+        selected = field.currentData()
+        field.clear()
+        field.addItem("Automatico dal tuo account", "")
+        for slug, label in result.models:
+            field.addItem(label, slug)
+        index = field.findData(selected)
+        if index >= 0:
+            field.setCurrentIndex(index)
+        if result.available and result.model_available:
+            detail = f"{result.message}\n\nModello: {result.configured_model}"
+            self.status.setText("ChatGPT connesso.")
+            QMessageBox.information(self, "ChatGPT connesso", detail)
+            return
+        detail = f"{result.message}\n\nModello: {result.configured_model}"
+        self.status.setText("ChatGPT non disponibile.")
+        QMessageBox.warning(self, "ChatGPT non disponibile", detail)
+
+    def _health_failed(self, detail: str) -> None:
+        self.status.setText("ChatGPT non disponibile.")
+        QMessageBox.warning(self, "ChatGPT non disponibile", detail)
+
+    def _health_finished(self) -> None:
+        self._health_thread = None
+        self._health_worker = None
+        self._set_chatgpt_busy(False)
+
+    def _set_chatgpt_busy(self, busy):
+        allowed = self._can_manage_configuration() and not busy
+        for button in (self.sign_in_button, self.disconnect_button, self.test_chatgpt_button):
+            button.setEnabled(allowed)
+
+    def _refresh_chatgpt_account(self):
+        try:
+            state = ChatGPTAuth().summary()
+            if state["connected"]:
+                permission = "Uso del piano autorizzato." if state["sharing"] else "Uso del piano da autorizzare."
+                text = f"ChatGPT: {state['email']} ? {permission}"
+            else:
+                text = "ChatGPT non collegato. Accedi e autorizza l'uso del tuo piano Plus o Pro."
+        except AIServiceError as exc:
+            text = str(exc)
+        self.account_status.setText(text + "\nLe richieste inviano i dati selezionati a OpenAI e consumano i limiti del piano. Le bozze richiedono revisione.")
+
+    def sign_in_chatgpt(self):
+        if not self._can_manage_configuration() or self._health_thread is not None:
+            return
+        self._set_chatgpt_busy(True)
+        self.status.setText("Completa l'accesso e autorizza PassApp nel browser. Attesa massima: 5 minuti.")
+        thread = QThread(self)
+        worker = ChatGPTSignInWorker()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._sign_in_ready)
+        worker.failed.connect(self._health_failed)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
+        thread.finished.connect(self._health_finished)
+        thread.finished.connect(thread.deleteLater)
+        self._health_thread, self._health_worker = thread, worker
+        thread.start()
+
+    def _sign_in_ready(self, _state):
+        self._refresh_chatgpt_account()
+        self.status.setText("Accesso completato. Usa Verifica connessione ChatGPT per caricare i modelli.")
+
+    def disconnect_chatgpt(self):
+        if not self._can_manage_configuration() or self._health_thread is not None:
+            return
+        try:
+            ChatGPTAuth().disconnect()
+            self._refresh_chatgpt_account()
+            self.status.setText("Credenziali locali eliminate. Per revocare l'accesso apri le impostazioni ChatGPT.")
+            field = self.fields["ai.model"]
+            field.clear()
+            field.addItem("Automatico dal tuo account", "")
+        except AIServiceError as exc:
+            self._health_failed(str(exc))
+
+    @staticmethod
+    def manage_chatgpt_usage():
+        import webbrowser
+        webbrowser.open("https://chatgpt.com/settings/usage")
 
     def refresh_diagnostics(self) -> None:
         if not self._can_manage_configuration():
@@ -252,15 +371,24 @@ class ConfigurationPage(QWidget):
 
     def _config_from_fields(self, raw_config: dict) -> dict:
         raw_config.setdefault("paths", {})
+        raw_config["ai"] = dict(load_config(force_reload=True).get("ai", {}))
+        raw_config["ai"]["provider"] = "chatgpt"
         for key, field in self.fields.items():
             section, name = key.split(".", 1)
-            value = field.text().strip()
+            value = field.currentData() if isinstance(field, QComboBox) else field.text().strip()
+            if name == "timeout" and not 1 <= int(value) <= 600:
+                raise ValueError("Il timeout deve essere compreso tra 1 e 600 secondi.")
             if name == "ospitalita_patterns":
                 raw_config.setdefault(section, {})[name] = [item.strip() for item in value.split(";") if item.strip()]
             elif section == "ai":
-                if name == "openrouter_model" and value.strip().lower() in {"", "free"}:
-                    value = "openrouter/free"
-                raw_config.setdefault(section, {})[name] = value
+                if name in {"timeout", "max_tokens"}:
+                    raw_config.setdefault(section, {})[name] = int(value)
+                elif name == "temperature":
+                    raw_config.setdefault(section, {})[name] = float(value)
+                elif name in {"stream", "allow_lan", "documents_enabled"}:
+                    raw_config.setdefault(section, {})[name] = value.lower() in {"1", "true", "yes", "si", "on"}
+                else:
+                    raw_config.setdefault(section, {})[name] = value
             elif value:
                 raw_config.setdefault(section, {})[name] = value
         return raw_config

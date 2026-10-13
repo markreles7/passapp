@@ -14,6 +14,10 @@ __pycache__/
 data/*.log
 data/passapp.log
 data/audit_log.jsonl
+data/ai_audit.jsonl
+.env
+.env.*
+*.dpapi
 data/segnalazioni.json
 data/contatti.json
 data/sopralluoghi.json

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import hashlib
 import json
 import os
 import re
@@ -46,6 +47,12 @@ class FascicoloAttachment:
     data_aggiunta: str
     sopralluogo_id: int | None = None
     descrizione: str = ""
+    sha256: str = ""
+    data_file: str = ""
+    ora_file: str = ""
+    autore: str = ""
+    posizione: str = ""
+    ordine: int = 0
 
 
 def safe_windows_name(value: str, max_length: int = 90) -> str:
@@ -114,6 +121,9 @@ def add_attachment(
     origine: str = "segnalazione",
     sopralluogo_id: int | None = None,
     descrizione: str = "",
+    autore: str = "",
+    posizione: str = "",
+    ordine: int | None = None,
     registry_path: Path = FASCICOLI_FILE,
     base_dir: Path = FASCICOLI_BASE_DIR,
 ) -> FascicoloAttachment:
@@ -135,6 +145,7 @@ def add_attachment(
     if existing is not None:
         return _attachment_from_dict(existing)
 
+    file_timestamp = dt.datetime.fromtimestamp(source.stat().st_mtime)
     item = FascicoloAttachment(
         id_allegato=_next_attachment_id(registry),
         segnalazione_id=_segnalazione_id(segnalazione),
@@ -145,6 +156,12 @@ def add_attachment(
         data_aggiunta=now_timestamp(),
         sopralluogo_id=sopralluogo_id,
         descrizione=descrizione,
+        sha256=_file_sha256(source),
+        data_file=file_timestamp.strftime("%Y-%m-%d"),
+        ora_file=file_timestamp.strftime("%H:%M:%S"),
+        autore=str(autore or "").strip(),
+        posizione=str(posizione or "").strip(),
+        ordine=int(ordine) if ordine is not None else len(registry["allegati"]) + 1,
     )
     registry["allegati"].append(asdict(item))
     save_registry(registry, registry_path)
@@ -482,7 +499,21 @@ def _attachment_from_dict(raw: dict[str, Any]) -> FascicoloAttachment:
         data_aggiunta=str(raw.get("data_aggiunta", "")),
         sopralluogo_id=int(sopralluogo_id) if sopralluogo_id else None,
         descrizione=str(raw.get("descrizione", "")),
+        sha256=str(raw.get("sha256", "")),
+        data_file=str(raw.get("data_file", "")),
+        ora_file=str(raw.get("ora_file", "")),
+        autore=str(raw.get("autore", "")),
+        posizione=str(raw.get("posizione", "")),
+        ordine=int(raw.get("ordine", 0) or 0),
     )
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _segnalazione_id(segnalazione) -> int:

@@ -8,7 +8,7 @@ from core.fascicoli import add_attachment
 from core.sopralluoghi import Sopralluogo
 from qt_app import sopralluoghi_pdf
 from qt_app.sopralluoghi_pdf import (
-    PHOTO_CAPTION_FALLBACK,
+    PHOTO_CAPTION_DEFAULT,
     build_pdf_payload,
     build_verbale_recipients,
     build_verbale_subject,
@@ -104,7 +104,7 @@ class TestSopralluoghiPdf(unittest.TestCase):
             "qt_app.sopralluoghi_pdf.generate_photo_caption_with_ai",
             return_value="Veduta dell'area stradale con vegetazione ai margini.",
         ) as generator:
-            enrich_photo_descriptions_with_ai(payload, config={"ai": {"provider": "openrouter"}})
+            enrich_photo_descriptions_with_ai(payload, config={"ai": {"model": "qwen3.5-4b"}})
 
         self.assertEqual(payload["foto_items"][0]["descrizione"], "Veduta dell'area stradale con vegetazione ai margini.")
         self.assertEqual(payload["foto_items"][1]["descrizione"], "Descrizione gia presente")
@@ -113,9 +113,9 @@ class TestSopralluoghiPdf(unittest.TestCase):
     def test_photo_description_falls_back_when_ai_is_unavailable(self):
         payload = {"foto_items": [{"path": "foto_1.jpg", "descrizione": ""}]}
         with patch("qt_app.sopralluoghi_pdf.generate_photo_caption_with_ai", return_value=""):
-            enrich_photo_descriptions_with_ai(payload, config={"ai": {"provider": "openrouter"}})
+            enrich_photo_descriptions_with_ai(payload, config={"ai": {"model": "qwen3.5-4b"}})
 
-        self.assertEqual(payload["foto_items"][0]["descrizione"], PHOTO_CAPTION_FALLBACK)
+        self.assertEqual(payload["foto_items"][0]["descrizione"], PHOTO_CAPTION_DEFAULT)
 
     def test_template_renderer_does_not_replace_long_ai_text_as_token(self):
         source = Path(sopralluoghi_pdf.__file__).read_text(encoding="utf-8")

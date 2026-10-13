@@ -80,22 +80,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "warning_days": 60,
     },
     "ai": {
-        "provider": "gemini",
-        "gemini_api_key": "",
-        "gemini_model": "gemini-3-flash-preview",
-        "openrouter_api_key": "",
-        "openrouter_model": "openrouter/free",
-        "gemini_base_prompt": (
+        "provider": "chatgpt",
+        "model": "",
+        "timeout": 120,
+        "documents_enabled": True,
+        "photo_descriptions_enabled": False,
+        "base_prompt": (
             "Sei un assistente redazionale per un ufficio di Polizia Locale. "
             "Devi trasformare i dati inseriti dagli operatori in testi amministrativi chiari, formali e professionali. "
             "Usa solo i dati disponibili, non inventare norme, responsabilita, misure, nominativi, date o fatti. "
             "Se un dato non e presente, indica che non risulta agli atti. "
             "Mantieni un tono neutro e istituzionale, evitando frasi colloquiali o valutazioni personali."
         ),
-        "gemini_enabled_for_segnalazione_pdf": True,
-        "gemini_enabled_for_sopralluogo": True,
-        "photo_descriptions_enabled": True,
-        "gemini_timeout_seconds": 45,
     },
     "auth": {
         "enabled": False,
@@ -216,6 +212,15 @@ def _apply_modern_ui_theme(config: dict[str, Any]) -> None:
             modules[key]["accent_dark"] = accent_dark
 
 
+def _sanitize_ai_config(config: dict[str, Any]) -> None:
+    defaults = DEFAULT_CONFIG["ai"]
+    current = config.get("ai", {}) if isinstance(config.get("ai"), dict) else {}
+    if current.get("provider") != "chatgpt":
+        current = {k: v for k, v in current.items() if k not in {"model", "base_url", "temperature", "max_tokens", "stream", "allow_lan"}}
+    config["ai"] = {key: current.get(key, value) for key, value in defaults.items()}
+    config["ai"]["provider"] = "chatgpt"
+
+
 def load_config(force_reload: bool = False) -> dict[str, Any]:
     global _CONFIG_CACHE, _CONFIG_DIAGNOSTIC
     if _CONFIG_CACHE is not None and not force_reload:
@@ -230,6 +235,10 @@ def load_config(force_reload: bool = False) -> dict[str, Any]:
     try:
         raw = json.loads(config_path.read_text(encoding="utf-8"))
         if isinstance(raw, dict):
+            # Migrate before merging: the new default provider must not make an
+            # old LM Studio model look like an explicitly selected ChatGPT model.
+            if "ai" in raw:
+                _sanitize_ai_config(raw)
             config = _deep_merge(config, raw)
     except FileNotFoundError:
         pass
@@ -241,6 +250,7 @@ def load_config(force_reload: bool = False) -> dict[str, Any]:
         logger.warning(_CONFIG_DIAGNOSTIC)
 
     _apply_modern_ui_theme(config)
+    _sanitize_ai_config(config)
     _CONFIG_CACHE = config
     return config
 

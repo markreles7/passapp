@@ -7,6 +7,9 @@ from core.report_exporter import export_monthly_report_pdf
 from core.report_service import build_monthly_report
 from qt_app.segnalazioni_pdf import render_segnalazione_pdf
 from qt_app.sopralluoghi_pdf import render_sopralluogo_pdf
+from services.ai.ai_service import AIService
+from services.ai.exceptions import AIServiceError, user_message
+from services.ai.chatgpt_client import ChatGPTClient, ChatGPTConfig
 
 
 class DashboardWorker(QObject):
@@ -136,3 +139,59 @@ class OspitalitaLoadWorker(QObject):
             self.finished.emit(records, files, errors, insights)
         except Exception as exc:
             self.failed.emit(str(exc) or "Errore non specificato")
+
+
+class OperationalAssistantWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, text: str, config: dict):
+        super().__init__()
+        self.text = text
+        self.config = config
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(AIService.from_app_config(self.config).process_user_command(self.text))
+        except AIServiceError as exc:
+            self.failed.emit(user_message(exc))
+        except Exception:
+            self.failed.emit("L'Assistente Operativo non e momentaneamente disponibile.\nI dati di PassApp non sono stati modificati.")
+
+
+class ChatGPTHealthWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, ai_config: dict):
+        super().__init__()
+        self.ai_config = ai_config
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            client = ChatGPTClient(ChatGPTConfig.from_mapping(self.ai_config))
+            self.finished.emit(client.health_check_sync())
+        except Exception as exc:
+            self.failed.emit(str(exc) or "Verifica ChatGPT non riuscita.")
+
+
+class ChatGPTSignInWorker(QObject):
+    finished = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        import threading
+        self.cancelled = threading.Event()
+
+    @Slot()
+    def run(self):
+        from services.ai.chatgpt_auth import ChatGPTAuth
+        try:
+            self.finished.emit(ChatGPTAuth().sign_in(self.cancelled))
+        except AIServiceError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            self.failed.emit("Collegamento ChatGPT non riuscito. Riprova.")

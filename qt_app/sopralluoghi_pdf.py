@@ -10,14 +10,14 @@ from typing import Any
 
 from app_config import load_config, resolve_path
 from core.fascicoli import list_attachments, relative_to_path
-from core.gemini_verbale import generate_photo_caption_with_ai, prepare_sopralluogo_verbale
+from core.ai_documents import generate_photo_caption_with_ai, prepare_sopralluogo_verbale
 from core.sopralluoghi import Sopralluogo
 
 APP_CONFIG = load_config()
 PATHS = APP_CONFIG["paths"]
 SEGNALAZIONI_PDF_DIR = resolve_path(PATHS["segnalazioni_pdf_dir"])
 VERBALE_SOPRALLUOGO_TEMPLATE = resolve_path(PATHS.get("verbale_sopralluogo_template", "templates/verbale_sopralluogo.doc"))
-PHOTO_CAPTION_FALLBACK = "Foto allegata al sopralluogo."
+PHOTO_CAPTION_DEFAULT = "Foto allegata al sopralluogo."
 
 
 def safe_pdf_filename(value: str) -> str:
@@ -137,7 +137,7 @@ def enrich_photo_descriptions_with_ai(payload: dict[str, Any], config: dict[str,
             photo["descrizione"] = current_description
             continue
         generated = generate_photo_caption_with_ai(photo.get("path", ""), payload, config=config)
-        photo["descrizione"] = generated or PHOTO_CAPTION_FALLBACK
+        photo["descrizione"] = generated or PHOTO_CAPTION_DEFAULT
     return payload
 
 
